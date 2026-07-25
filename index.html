@@ -1,0 +1,1860 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#25322d">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="مرساة">
+  <meta name="description" content="سطح التقاط شخصي سريع ومراجعة أسبوعية بلا تعقيد.">
+  <link rel="manifest" href="./manifest.webmanifest">
+  <link rel="apple-touch-icon" href="./icons/icon-180.png">
+  <title>مرساة</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #f3f0e9;
+      --surface: #fbfaf6;
+      --surface-2: #ece8de;
+      --text: #202823;
+      --muted: #6d746f;
+      --line: #d9d4c8;
+      --accent: #25322d;
+      --accent-soft: #dfe7e1;
+      --danger: #8a3e36;
+      --shadow: 0 12px 35px rgba(44, 48, 43, .08);
+      --radius: 18px;
+      --safe-bottom: env(safe-area-inset-bottom, 0px);
+    }
+
+    * { box-sizing: border-box; }
+
+    html { min-height: 100%; background: var(--bg); }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background:
+        radial-gradient(circle at 90% -10%, rgba(255,255,255,.9), transparent 34rem),
+        var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Tahoma, Arial, sans-serif;
+      -webkit-font-smoothing: antialiased;
+      text-rendering: optimizeLegibility;
+    }
+
+    button, input, textarea, select { font: inherit; }
+    button { cursor: pointer; }
+    button:disabled { cursor: default; opacity: .45; }
+
+    .app-shell {
+      width: min(820px, 100%);
+      min-height: 100vh;
+      margin-inline: auto;
+      padding: 20px 18px calc(94px + var(--safe-bottom));
+    }
+
+    header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 20px;
+    }
+
+    .brand { display: flex; align-items: center; gap: 11px; }
+
+    .brand-mark {
+      width: 38px;
+      height: 38px;
+      display: grid;
+      place-items: center;
+      border: 1px solid var(--line);
+      border-radius: 13px;
+      background: rgba(251,250,246,.76);
+      box-shadow: var(--shadow);
+    }
+
+    .brand-mark svg { width: 23px; height: 23px; }
+    .brand h1 { margin: 0; font-size: 1.24rem; letter-spacing: -.025em; }
+    .brand p { margin: 2px 0 0; color: var(--muted); font-size: .77rem; }
+
+    .icon-btn {
+      width: 42px;
+      height: 42px;
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      background: rgba(251,250,246,.78);
+      color: var(--text);
+      display: grid;
+      place-items: center;
+    }
+
+    .capture {
+      position: relative;
+      padding: 16px;
+      margin-bottom: 16px;
+      border: 1px solid rgba(37,50,45,.12);
+      border-radius: 24px;
+      background: var(--surface);
+      box-shadow: var(--shadow);
+    }
+
+    .capture label {
+      display: block;
+      margin-bottom: 8px;
+      color: var(--muted);
+      font-size: .78rem;
+    }
+
+    #captureInput {
+      display: block;
+      width: 100%;
+      min-height: 54px;
+      max-height: 180px;
+      resize: none;
+      overflow-y: auto;
+      padding: 8px 2px 6px;
+      border: 0;
+      outline: 0;
+      background: transparent;
+      color: var(--text);
+      font-size: 1.12rem;
+      line-height: 1.65;
+    }
+
+    #captureInput::placeholder { color: #989b95; }
+
+    .capture-footer {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      margin-top: 8px;
+    }
+
+    .capture-hint { color: var(--muted); font-size: .72rem; }
+
+    .primary-btn, .secondary-btn, .quiet-btn, .danger-btn {
+      border-radius: 12px;
+      padding: 9px 13px;
+      border: 1px solid transparent;
+      transition: transform .12s ease, background .12s ease;
+    }
+
+    .primary-btn:active, .secondary-btn:active, .quiet-btn:active, .danger-btn:active { transform: scale(.98); }
+    .primary-btn { background: var(--accent); color: #fff; }
+    .secondary-btn { background: var(--accent-soft); color: var(--accent); }
+    .quiet-btn { background: transparent; color: var(--muted); border-color: var(--line); }
+    .danger-btn { background: #f4e3df; color: var(--danger); }
+    .small-btn { padding: 7px 10px; font-size: .78rem; }
+
+    .search-panel {
+      padding: 12px;
+      margin-bottom: 16px;
+      border: 1px solid var(--line);
+      border-radius: 17px;
+      background: rgba(251,250,246,.62);
+    }
+
+    .search-row { display: flex; gap: 8px; }
+
+    .field, .select-field {
+      width: 100%;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 10px 12px;
+      outline: none;
+      background: var(--surface);
+      color: var(--text);
+    }
+
+    .field:focus, .select-field:focus, #captureInput:focus { box-shadow: 0 0 0 3px rgba(37,50,45,.09); }
+
+    .search-filters {
+      display: none;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+      margin-top: 10px;
+    }
+
+    .search-panel.expanded .search-filters { display: grid; }
+    .date-field label { display: block; color: var(--muted); font-size: .7rem; margin: 0 3px 5px; }
+
+    .view { display: none; }
+    .view.active { display: block; animation: fade-in .16s ease; }
+    @keyframes fade-in { from { opacity: .35; transform: translateY(3px); } }
+
+    .section-head {
+      display: flex;
+      align-items: flex-end;
+      justify-content: space-between;
+      gap: 12px;
+      margin: 20px 2px 10px;
+    }
+
+    .section-head h2, .section-head h3 { margin: 0; font-size: 1rem; }
+    .section-head p { margin: 4px 0 0; color: var(--muted); font-size: .74rem; }
+    .count { color: var(--muted); font-size: .75rem; }
+
+    .triage {
+      display: none;
+      padding: 16px;
+      margin-bottom: 16px;
+      border: 1px solid #cfd8d1;
+      border-radius: var(--radius);
+      background: #eef2ee;
+    }
+
+    .triage.visible { display: block; }
+    .triage-kicker { color: var(--muted); font-size: .72rem; margin-bottom: 8px; }
+    .triage-question { margin: 0 0 10px; font-size: .88rem; font-weight: 700; }
+    .triage-text { margin: 0 0 14px; font-size: 1.02rem; line-height: 1.65; white-space: pre-wrap; overflow-wrap: anywhere; }
+    .triage-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+
+    .card-list { display: grid; gap: 9px; }
+
+    .card {
+      padding: 14px 14px 11px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: rgba(251,250,246,.82);
+      box-shadow: 0 5px 18px rgba(44,48,43,.035);
+    }
+
+    .card-text {
+      margin: 0;
+      line-height: 1.72;
+      white-space: pre-wrap;
+      overflow-wrap: anywhere;
+      font-size: .96rem;
+    }
+
+    .card-meta {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 7px;
+      margin-top: 10px;
+      color: var(--muted);
+      font-size: .69rem;
+    }
+
+    .context-chip, .state-chip {
+      padding: 3px 7px;
+      border-radius: 999px;
+      background: var(--surface-2);
+      color: #535b56;
+    }
+
+    .card-actions {
+      display: flex;
+      gap: 6px;
+      flex-wrap: wrap;
+      margin-top: 11px;
+      padding-top: 10px;
+      border-top: 1px solid rgba(217,212,200,.7);
+    }
+
+    .action-link {
+      border: 0;
+      background: transparent;
+      color: var(--muted);
+      padding: 5px 4px;
+      font-size: .75rem;
+    }
+
+    .action-link.primary { color: var(--accent); font-weight: 700; }
+    .action-link.danger { color: var(--danger); }
+
+    .empty {
+      padding: 34px 18px;
+      text-align: center;
+      border: 1px dashed var(--line);
+      border-radius: var(--radius);
+      color: var(--muted);
+      background: rgba(251,250,246,.35);
+    }
+
+    details.later {
+      margin-top: 18px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: rgba(251,250,246,.48);
+      overflow: hidden;
+    }
+
+    details.later > summary {
+      list-style: none;
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 14px;
+      cursor: pointer;
+      font-weight: 700;
+      font-size: .9rem;
+    }
+
+    details.later > summary::-webkit-details-marker { display: none; }
+    .details-body { padding: 0 10px 10px; }
+
+    .outcomes {
+      padding: 14px;
+      margin-bottom: 16px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: rgba(251,250,246,.72);
+    }
+
+    .outcome-add { display: flex; gap: 8px; margin-top: 12px; }
+    .outcome-list { display: grid; gap: 8px; margin-top: 12px; }
+
+    .outcome {
+      display: grid;
+      grid-template-columns: auto 1fr auto;
+      align-items: center;
+      gap: 9px;
+      padding: 10px;
+      border-radius: 13px;
+      background: var(--surface-2);
+    }
+
+    .outcome.done .outcome-title { text-decoration: line-through; opacity: .62; }
+    .outcome-title { line-height: 1.45; }
+    .outcome-index { width: 24px; height: 24px; border-radius: 9px; display: grid; place-items: center; background: var(--surface); font-size: .72rem; }
+    .checkbox { width: 18px; height: 18px; accent-color: var(--accent); }
+
+    .group { margin-top: 20px; }
+    .group-title { margin: 0 2px 9px; color: var(--muted); font-size: .78rem; font-weight: 700; }
+
+    .bottom-nav {
+      position: fixed;
+      z-index: 20;
+      left: 50%;
+      bottom: 12px;
+      transform: translateX(-50%);
+      width: min(520px, calc(100% - 24px));
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 5px;
+      padding: 6px;
+      padding-bottom: calc(6px + var(--safe-bottom));
+      border: 1px solid rgba(217,212,200,.9);
+      border-radius: 20px;
+      background: rgba(251,250,246,.92);
+      backdrop-filter: blur(18px);
+      box-shadow: 0 14px 40px rgba(32,40,35,.14);
+    }
+
+    .nav-btn {
+      border: 0;
+      border-radius: 14px;
+      padding: 11px 8px;
+      background: transparent;
+      color: var(--muted);
+      font-size: .82rem;
+    }
+
+    .nav-btn.active { background: var(--accent); color: #fff; }
+
+    dialog {
+      width: min(560px, calc(100% - 24px));
+      max-height: 86vh;
+      padding: 0;
+      border: 0;
+      border-radius: 24px;
+      background: var(--surface);
+      color: var(--text);
+      box-shadow: 0 30px 100px rgba(20,25,22,.28);
+    }
+
+    dialog::backdrop { background: rgba(26,31,28,.42); backdrop-filter: blur(3px); }
+    .dialog-inner { padding: 20px; overflow-y: auto; max-height: 86vh; }
+    .dialog-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 16px; }
+    .dialog-head h2 { margin: 0; font-size: 1.05rem; }
+    .dialog-close { border: 0; background: var(--surface-2); width: 34px; height: 34px; border-radius: 11px; }
+    .form-group { margin-bottom: 13px; }
+    .form-group label { display: block; margin: 0 2px 6px; color: var(--muted); font-size: .75rem; }
+    .edit-text { min-height: 130px; resize: vertical; line-height: 1.65; }
+    .dialog-actions { display: flex; justify-content: space-between; gap: 8px; flex-wrap: wrap; margin-top: 16px; }
+
+    .review-card {
+      padding: 16px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: var(--surface-2);
+      margin-bottom: 14px;
+    }
+
+    .review-progress { color: var(--muted); font-size: .73rem; margin-bottom: 9px; }
+    .review-text { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.75; }
+    .review-actions { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; margin-top: 14px; }
+
+    .settings-grid { display: grid; gap: 10px; }
+    .settings-item { padding: 13px; border: 1px solid var(--line); border-radius: 14px; }
+    .settings-item h3 { margin: 0 0 5px; font-size: .88rem; }
+    .settings-item p { margin: 0 0 10px; color: var(--muted); font-size: .75rem; line-height: 1.55; }
+    .settings-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+
+    .toast {
+      position: fixed;
+      z-index: 50;
+      right: 50%;
+      bottom: calc(92px + var(--safe-bottom));
+      transform: translateX(50%) translateY(20px);
+      width: min(520px, calc(100% - 30px));
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 12px 14px;
+      border-radius: 15px;
+      background: #202823;
+      color: #fff;
+      opacity: 0;
+      pointer-events: none;
+      transition: .2s ease;
+      box-shadow: 0 16px 40px rgba(20,25,22,.25);
+      font-size: .8rem;
+    }
+
+    .toast.visible { opacity: 1; transform: translateX(50%) translateY(0); pointer-events: auto; }
+    .toast button { border: 0; background: transparent; color: #fff; text-decoration: underline; }
+
+    .search-results-note { margin-bottom: 10px; color: var(--muted); font-size: .74rem; }
+    .muted { color: var(--muted); }
+
+    @media (min-width: 700px) {
+      .app-shell { padding-top: 34px; }
+      .capture { padding: 20px; }
+      .review-actions { grid-template-columns: repeat(4, 1fr); }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after { scroll-behavior: auto !important; transition: none !important; animation: none !important; }
+    }
+  </style>
+</head>
+<body>
+  <div class="app-shell">
+    <header>
+      <div class="brand">
+        <div class="brand-mark" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
+            <path d="M12 3v13"/>
+            <path d="M7 8h10"/>
+            <path d="M5 13c0 4 3.1 7 7 7s7-3 7-7"/>
+            <path d="M4 13h3M17 13h3"/>
+          </svg>
+        </div>
+        <div>
+          <h1>مرساة</h1>
+          <p>التقاط أولًا، قرار لاحقًا</p>
+        </div>
+      </div>
+      <button class="icon-btn" id="settingsButton" aria-label="الإعدادات" title="الإعدادات">•••</button>
+    </header>
+
+    <section class="capture" aria-label="التقاط سريع">
+      <label for="captureInput">ماذا ظهر الآن؟</label>
+      <textarea id="captureInput" rows="1" dir="auto" enterkeyhint="done" autocomplete="off" autocapitalize="sentences" placeholder="اكتب ثم اضغط Enter…"></textarea>
+      <div class="capture-footer">
+        <span class="capture-hint">Enter للحفظ · Shift + Enter لسطر جديد</span>
+        <button class="primary-btn small-btn" id="captureButton">حفظ</button>
+      </div>
+    </section>
+
+    <section class="search-panel" id="searchPanel" aria-label="البحث">
+      <div class="search-row">
+        <input class="field" id="searchInput" type="search" placeholder="ابحث في كل شيء…" autocomplete="off">
+        <button class="quiet-btn small-btn" id="searchFiltersButton" aria-expanded="false">التاريخ</button>
+      </div>
+      <div class="search-filters">
+        <div class="date-field">
+          <label for="dateFrom">من</label>
+          <input class="field" id="dateFrom" type="date">
+        </div>
+        <div class="date-field">
+          <label for="dateTo">إلى</label>
+          <input class="field" id="dateTo" type="date">
+        </div>
+      </div>
+    </section>
+
+    <main>
+      <section class="view active" id="inboxView" data-view="inbox">
+        <div class="triage" id="triagePanel">
+          <div class="triage-kicker">تصفية اليوم · عنصر واحد في كل مرة</div>
+          <p class="triage-question">هل يحتاج هذا إلى تصرّف خلال 48 ساعة؟</p>
+          <p class="triage-text" id="triageText" dir="auto"></p>
+          <div class="triage-actions">
+            <button class="primary-btn small-btn" id="triageWeek">نعم، هذا الأسبوع</button>
+            <button class="quiet-btn small-btn" id="triageSeen">لا، أبقه في الوارد</button>
+          </div>
+        </div>
+
+        <div class="section-head">
+          <div>
+            <h2>الوارد</h2>
+            <p>كل ما التقطته ولم تحسمه بعد</p>
+          </div>
+          <button class="secondary-btn small-btn" id="startReviewButton">مراجعة الأسبوع</button>
+        </div>
+        <div class="card-list" id="inboxList"></div>
+
+        <details class="later" id="laterSection">
+          <summary>
+            <span>لاحقًا</span>
+            <span class="count" id="laterCount">0</span>
+          </summary>
+          <div class="details-body">
+            <div class="card-list" id="laterList"></div>
+          </div>
+        </details>
+      </section>
+
+      <section class="view" id="weekView" data-view="week">
+        <section class="outcomes">
+          <div class="section-head" style="margin-top:0">
+            <div>
+              <h2>نتائج الأسبوع</h2>
+              <p id="weekLabel"></p>
+            </div>
+            <span class="count" id="outcomeCount">0 / 3</span>
+          </div>
+          <div class="outcome-list" id="outcomeList"></div>
+          <div class="outcome-add">
+            <input class="field" id="outcomeInput" dir="auto" maxlength="120" placeholder="أضف نتيجة واضحة للأسبوع">
+            <button class="primary-btn small-btn" id="addOutcomeButton">إضافة</button>
+          </div>
+        </section>
+        <div id="weekGroups"></div>
+      </section>
+
+      <section class="view" id="archiveView" data-view="archive">
+        <div class="section-head">
+          <div>
+            <h2>الأرشيف</h2>
+            <p>مرجع قابل للاسترجاع، لا قائمة انتظار</p>
+          </div>
+          <span class="count" id="archiveCount">0</span>
+        </div>
+        <div class="card-list" id="archiveList"></div>
+      </section>
+
+      <section class="view" id="searchView" data-view="search">
+        <div class="section-head">
+          <div>
+            <h2>نتائج البحث</h2>
+            <p>يشمل الوارد، الأسبوع، لاحقًا، والأرشيف</p>
+          </div>
+          <span class="count" id="searchCount">0</span>
+        </div>
+        <div class="search-results-note" id="searchResultsNote"></div>
+        <div class="card-list" id="searchList"></div>
+      </section>
+    </main>
+  </div>
+
+  <nav class="bottom-nav" aria-label="التنقل الرئيسي">
+    <button class="nav-btn active" data-target="inbox">الوارد</button>
+    <button class="nav-btn" data-target="week">هذا الأسبوع</button>
+    <button class="nav-btn" data-target="archive">الأرشيف</button>
+  </nav>
+
+  <datalist id="contextSuggestions"></datalist>
+
+  <dialog id="editDialog">
+    <div class="dialog-inner">
+      <div class="dialog-head">
+        <h2>تحرير العنصر</h2>
+        <button class="dialog-close" data-close-dialog="editDialog" aria-label="إغلاق">×</button>
+      </div>
+      <form id="editForm">
+        <input type="hidden" id="editCardId">
+        <div class="form-group">
+          <label for="editText">النص</label>
+          <textarea class="field edit-text" id="editText" dir="auto" required></textarea>
+        </div>
+        <div class="form-group">
+          <label for="editContext">السياق — اختياري</label>
+          <input class="field" id="editContext" list="contextSuggestions" dir="auto" placeholder="أطلس، الكتاب، الاستثمار…">
+        </div>
+        <div class="form-group" id="editOutcomeGroup">
+          <label for="editOutcome">نتيجة الأسبوع</label>
+          <select class="select-field" id="editOutcome"></select>
+        </div>
+        <div class="form-group">
+          <label style="display:flex; align-items:center; gap:8px; color:var(--text);">
+            <input class="checkbox" id="editPinned" type="checkbox">
+            تثبيت العنصر ومنع تحلّله في «لاحقًا»
+          </label>
+        </div>
+        <div class="dialog-actions">
+          <button type="button" class="danger-btn small-btn" id="editDeleteButton">حذف</button>
+          <button type="submit" class="primary-btn">حفظ التعديل</button>
+        </div>
+      </form>
+    </div>
+  </dialog>
+
+  <dialog id="reviewDialog">
+    <div class="dialog-inner">
+      <div class="dialog-head">
+        <h2>مراجعة الأسبوع</h2>
+        <button class="dialog-close" data-close-dialog="reviewDialog" aria-label="إغلاق">×</button>
+      </div>
+      <div id="reviewContent"></div>
+    </div>
+  </dialog>
+
+  <dialog id="settingsDialog">
+    <div class="dialog-inner">
+      <div class="dialog-head">
+        <h2>الإعدادات والنسخ الاحتياطي</h2>
+        <button class="dialog-close" data-close-dialog="settingsDialog" aria-label="إغلاق">×</button>
+      </div>
+      <div class="settings-grid">
+        <section class="settings-item">
+          <h3>حماية التخزين</h3>
+          <p id="storageStatus">جارٍ فحص حالة التخزين…</p>
+          <div class="settings-actions">
+            <button class="secondary-btn small-btn" id="requestPersistenceButton">طلب التخزين الدائم</button>
+          </div>
+        </section>
+        <section class="settings-item">
+          <h3>تصدير</h3>
+          <p id="exportStatus">JSON للاستعادة الكاملة، وMarkdown للقراءة داخل Obsidian.</p>
+          <div class="settings-actions">
+            <button class="secondary-btn small-btn" id="exportJsonButton">JSON كامل</button>
+            <button class="secondary-btn small-btn" id="exportMarkdownButton">Markdown</button>
+          </div>
+        </section>
+        <section class="settings-item">
+          <h3>دمج نسخة</h3>
+          <p>يُدمج الملف مع البيانات الحالية حسب المعرّف؛ النسخة الأحدث في updatedAt تفوز. لا تُحذف العناصر الحالية.</p>
+          <div class="settings-actions">
+            <label class="quiet-btn small-btn" for="importInput" style="cursor:pointer">اختيار ملف JSON</label>
+            <input id="importInput" type="file" accept="application/json,.json" hidden>
+          </div>
+        </section>
+        <section class="settings-item">
+          <h3>المحذوفات</h3>
+          <p id="trashStatus">لا توجد عناصر محذوفة.</p>
+          <div class="settings-actions">
+            <button class="quiet-btn small-btn" id="restoreTrashButton">استعادة الكل</button>
+            <button class="danger-btn small-btn" id="emptyTrashButton">إفراغ الآن</button>
+          </div>
+        </section>
+        <section class="settings-item">
+          <h3>حدود النسخة v0</h3>
+          <p>البيانات محلية على هذا الجهاز فقط. لا مزامنة ولا حساب مستخدم. اجعل الآيفون مصدر الحقيقة خلال اختبار 14 يومًا.</p>
+        </section>
+      </div>
+    </div>
+  </dialog>
+
+  <div class="toast" id="toast" role="status" aria-live="polite">
+    <span id="toastText"></span>
+    <button id="toastAction" hidden></button>
+  </div>
+
+  <script>
+  (() => {
+    'use strict';
+
+    const DB_NAME = 'mersah-db';
+    const DB_VERSION = 1;
+    const STATES = Object.freeze({
+      INBOX: 'inbox',
+      WEEK: 'week',
+      LATER: 'later',
+      ARCHIVE: 'archive',
+      TRASH: 'trash'
+    });
+    const DAY = 24 * 60 * 60 * 1000;
+    const LATER_DECAY_DAYS = 30;
+    const TRASH_RETENTION_DAYS = 7;
+
+    const stateLabels = {
+      inbox: 'الوارد',
+      week: 'هذا الأسبوع',
+      later: 'لاحقًا',
+      archive: 'الأرشيف',
+      trash: 'المحذوفات'
+    };
+
+    let databasePromise;
+    let cards = [];
+    let outcomes = [];
+    let currentView = 'inbox';
+    let reviewQueue = [];
+    let reviewIndex = 0;
+    let decayUndo = [];
+    let toastTimer;
+
+    const $ = (selector, root = document) => root.querySelector(selector);
+    const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
+
+    const elements = {
+      captureInput: $('#captureInput'),
+      captureButton: $('#captureButton'),
+      searchPanel: $('#searchPanel'),
+      searchInput: $('#searchInput'),
+      searchFiltersButton: $('#searchFiltersButton'),
+      dateFrom: $('#dateFrom'),
+      dateTo: $('#dateTo'),
+      inboxList: $('#inboxList'),
+      laterList: $('#laterList'),
+      laterCount: $('#laterCount'),
+      triagePanel: $('#triagePanel'),
+      triageText: $('#triageText'),
+      triageWeek: $('#triageWeek'),
+      triageSeen: $('#triageSeen'),
+      startReviewButton: $('#startReviewButton'),
+      outcomeInput: $('#outcomeInput'),
+      addOutcomeButton: $('#addOutcomeButton'),
+      outcomeList: $('#outcomeList'),
+      outcomeCount: $('#outcomeCount'),
+      weekLabel: $('#weekLabel'),
+      weekGroups: $('#weekGroups'),
+      archiveList: $('#archiveList'),
+      archiveCount: $('#archiveCount'),
+      searchList: $('#searchList'),
+      searchCount: $('#searchCount'),
+      searchResultsNote: $('#searchResultsNote'),
+      contextSuggestions: $('#contextSuggestions'),
+      editDialog: $('#editDialog'),
+      editForm: $('#editForm'),
+      editCardId: $('#editCardId'),
+      editText: $('#editText'),
+      editContext: $('#editContext'),
+      editOutcome: $('#editOutcome'),
+      editOutcomeGroup: $('#editOutcomeGroup'),
+      editPinned: $('#editPinned'),
+      editDeleteButton: $('#editDeleteButton'),
+      reviewDialog: $('#reviewDialog'),
+      reviewContent: $('#reviewContent'),
+      settingsButton: $('#settingsButton'),
+      settingsDialog: $('#settingsDialog'),
+      storageStatus: $('#storageStatus'),
+      requestPersistenceButton: $('#requestPersistenceButton'),
+      exportStatus: $('#exportStatus'),
+      exportJsonButton: $('#exportJsonButton'),
+      exportMarkdownButton: $('#exportMarkdownButton'),
+      importInput: $('#importInput'),
+      trashStatus: $('#trashStatus'),
+      restoreTrashButton: $('#restoreTrashButton'),
+      emptyTrashButton: $('#emptyTrashButton'),
+      toast: $('#toast'),
+      toastText: $('#toastText'),
+      toastAction: $('#toastAction')
+    };
+
+    function openDatabase() {
+      if (databasePromise) return databasePromise;
+      databasePromise = new Promise((resolve, reject) => {
+        const request = indexedDB.open(DB_NAME, DB_VERSION);
+
+        request.onupgradeneeded = () => {
+          const db = request.result;
+          if (!db.objectStoreNames.contains('cards')) {
+            const store = db.createObjectStore('cards', { keyPath: 'id' });
+            store.createIndex('state', 'state', { unique: false });
+            store.createIndex('createdAt', 'createdAt', { unique: false });
+            store.createIndex('lastTouchedAt', 'lastTouchedAt', { unique: false });
+          }
+          if (!db.objectStoreNames.contains('outcomes')) {
+            const store = db.createObjectStore('outcomes', { keyPath: 'id' });
+            store.createIndex('weekOf', 'weekOf', { unique: false });
+          }
+          if (!db.objectStoreNames.contains('settings')) {
+            db.createObjectStore('settings', { keyPath: 'key' });
+          }
+        };
+
+        request.onsuccess = () => resolve(request.result);
+        request.onerror = () => reject(request.error || new Error('تعذر فتح قاعدة البيانات.'));
+        request.onblocked = () => reject(new Error('قاعدة البيانات مفتوحة في نسخة قديمة من التطبيق.'));
+      });
+      return databasePromise;
+    }
+
+    async function getAll(storeName) {
+      const db = await openDatabase();
+      return new Promise((resolve, reject) => {
+        const tx = db.transaction(storeName, 'readonly');
+        const request = tx.objectStore(storeName).getAll();
+        request.onsuccess = () => resolve(request.result || []);
+        request.onerror = () => reject(request.error);
+      });
+    }
+
+    async function putRecord(storeName, value) {
+      const db = await openDatabase();
+      return new Promise((resolve, reject) => {
+        const tx = db.transaction(storeName, 'readwrite');
+        tx.objectStore(storeName).put(value);
+        tx.oncomplete = () => resolve(value);
+        tx.onerror = () => reject(tx.error);
+        tx.onabort = () => reject(tx.error || new Error('تم إلغاء عملية الحفظ.'));
+      });
+    }
+
+    async function putMany(storeName, values) {
+      if (!values.length) return;
+      const db = await openDatabase();
+      return new Promise((resolve, reject) => {
+        const tx = db.transaction(storeName, 'readwrite');
+        const store = tx.objectStore(storeName);
+        values.forEach(value => store.put(value));
+        tx.oncomplete = () => resolve();
+        tx.onerror = () => reject(tx.error);
+      });
+    }
+
+    async function deleteRecord(storeName, key) {
+      const db = await openDatabase();
+      return new Promise((resolve, reject) => {
+        const tx = db.transaction(storeName, 'readwrite');
+        tx.objectStore(storeName).delete(key);
+        tx.oncomplete = () => resolve();
+        tx.onerror = () => reject(tx.error);
+      });
+    }
+
+    async function getSetting(key) {
+      const db = await openDatabase();
+      return new Promise((resolve, reject) => {
+        const tx = db.transaction('settings', 'readonly');
+        const request = tx.objectStore('settings').get(key);
+        request.onsuccess = () => resolve(request.result?.value ?? null);
+        request.onerror = () => reject(request.error);
+      });
+    }
+
+    async function putSetting(key, value) {
+      return putRecord('settings', { key, value, updatedAt: nowIso() });
+    }
+
+    function newerRecord(imported, existing) {
+      if (!existing) return true;
+      const importedTime = new Date(imported.updatedAt || imported.createdAt || 0).getTime();
+      const existingTime = new Date(existing.updatedAt || existing.createdAt || 0).getTime();
+      return importedTime > existingTime;
+    }
+
+    async function mergeDatabase(importedCards, importedOutcomes) {
+      const cleanCards = importedCards.map(sanitizeImportedCard).filter(card => card.text);
+      const cleanOutcomes = importedOutcomes.map(sanitizeImportedOutcome).filter(outcome => outcome.title);
+      const existingCards = new Map(cards.map(card => [card.id, card]));
+      const existingOutcomes = new Map(outcomes.map(outcome => [outcome.id, outcome]));
+      const cardsToWrite = cleanCards.filter(card => newerRecord(card, existingCards.get(card.id)));
+      const outcomesToWrite = cleanOutcomes.filter(outcome => newerRecord(outcome, existingOutcomes.get(outcome.id)));
+      await Promise.all([putMany('cards', cardsToWrite), putMany('outcomes', outcomesToWrite)]);
+      return { cards: cardsToWrite.length, outcomes: outcomesToWrite.length };
+    }
+
+    function uid(prefix = 'id') {
+      if (crypto.randomUUID) return `${prefix}_${crypto.randomUUID()}`;
+      return `${prefix}_${Date.now()}_${Math.random().toString(16).slice(2)}`;
+    }
+
+    function nowIso() { return new Date().toISOString(); }
+
+    function startOfWeek(date = new Date()) {
+      const d = new Date(date);
+      d.setHours(0, 0, 0, 0);
+      const mondayOffset = (d.getDay() + 6) % 7;
+      d.setDate(d.getDate() - mondayOffset);
+      return d;
+    }
+
+    function currentWeekKey() {
+      const d = startOfWeek();
+      return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+    }
+
+    function pad(value) { return String(value).padStart(2, '0'); }
+
+    function formatDate(value) {
+      const d = new Date(value);
+      if (Number.isNaN(d.getTime())) return '';
+      return `${pad(d.getDate())}/${pad(d.getMonth() + 1)}/${d.getFullYear()}`;
+    }
+
+    function formatTime(value) {
+      const d = new Date(value);
+      if (Number.isNaN(d.getTime())) return '';
+      return `${pad(d.getHours())}:${pad(d.getMinutes())}`;
+    }
+
+    function formatWeekRange() {
+      const start = startOfWeek();
+      const end = new Date(start);
+      end.setDate(end.getDate() + 6);
+      return `${formatDate(start)} — ${formatDate(end)}`;
+    }
+
+    function normalizeArabic(value = '') {
+      return String(value)
+        .normalize('NFKD')
+        .replace(/[\u064B-\u065F\u0670\u06D6-\u06ED]/g, '')
+        .replace(/\u0640/g, '')
+        .replace(/[أإآٱ]/g, 'ا')
+        .replace(/ؤ/g, 'و')
+        .replace(/ئ/g, 'ي')
+        .replace(/ى/g, 'ي')
+        .replace(/ة/g, 'ه')
+        .replace(/[٠-٩]/g, digit => String(digit.charCodeAt(0) - 0x0660))
+        .replace(/[۰-۹]/g, digit => String(digit.charCodeAt(0) - 0x06F0))
+        .toLowerCase()
+        .replace(/[^\p{L}\p{N}\s#@._-]/gu, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+    }
+
+    function canonicalContext(input) {
+      const clean = String(input || '').trim().replace(/\s+/g, ' ');
+      if (!clean) return '';
+      const normalized = normalizeArabic(clean);
+      const existing = cards
+        .map(card => card.context)
+        .filter(Boolean)
+        .find(context => normalizeArabic(context) === normalized);
+      return existing || clean;
+    }
+
+    function autoGrow(textarea) {
+      textarea.style.height = 'auto';
+      textarea.style.height = `${Math.min(textarea.scrollHeight, 180)}px`;
+    }
+
+    function cardDefaults(text) {
+      const now = nowIso();
+      return {
+        id: uid('card'),
+        text: text.trim(),
+        state: STATES.INBOX,
+        createdAt: now,
+        updatedAt: now,
+        seenAt: null,
+        lastTouchedAt: now,
+        context: '',
+        pinned: false,
+        outcomeId: null,
+        weekOf: null,
+        deletedAt: null
+      };
+    }
+
+    function sanitizeImportedCard(card) {
+      const now = nowIso();
+      const createdAt = validDate(card?.createdAt) || now;
+      const updatedAt = validDate(card?.updatedAt) || createdAt;
+      const validState = Object.values(STATES).includes(card?.state) ? card.state : STATES.INBOX;
+      return {
+        id: String(card?.id || uid('card')),
+        text: String(card?.text || '').trim(),
+        state: validState,
+        createdAt,
+        updatedAt,
+        seenAt: validDate(card?.seenAt),
+        lastTouchedAt: validDate(card?.lastTouchedAt) || updatedAt,
+        context: String(card?.context || '').trim(),
+        pinned: Boolean(card?.pinned),
+        outcomeId: card?.outcomeId ? String(card.outcomeId) : null,
+        weekOf: /^\d{4}-\d{2}-\d{2}$/.test(card?.weekOf || '') ? card.weekOf : null,
+        deletedAt: validDate(card?.deletedAt)
+      };
+    }
+
+    function sanitizeImportedOutcome(outcome) {
+      const now = nowIso();
+      const createdAt = validDate(outcome?.createdAt) || now;
+      const updatedAt = validDate(outcome?.updatedAt) || createdAt;
+      return {
+        id: String(outcome?.id || uid('outcome')),
+        title: String(outcome?.title || '').trim(),
+        weekOf: /^\d{4}-\d{2}-\d{2}$/.test(outcome?.weekOf || '') ? outcome.weekOf : currentWeekKey(),
+        done: Boolean(outcome?.done),
+        createdAt,
+        updatedAt
+      };
+    }
+
+    function validDate(value) {
+      if (!value) return null;
+      const d = new Date(value);
+      return Number.isNaN(d.getTime()) ? null : d.toISOString();
+    }
+
+    async function refreshData() {
+      [cards, outcomes] = await Promise.all([getAll('cards'), getAll('outcomes')]);
+      cards.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+      outcomes.sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
+      renderAll();
+    }
+
+    async function capture() {
+      const text = elements.captureInput.value.trim();
+      if (!text) return;
+      const card = cardDefaults(text);
+      await putRecord('cards', card);
+      elements.captureInput.value = '';
+      autoGrow(elements.captureInput);
+      await refreshData();
+      showToast('تم الالتقاط.', 'تراجع', async () => {
+        await deleteRecord('cards', card.id);
+        await refreshData();
+        focusCapture();
+      }, 6000);
+      focusCapture();
+    }
+
+    function focusCapture() {
+      if (document.visibilityState === 'visible') {
+        setTimeout(() => elements.captureInput.focus({ preventScroll: true }), 60);
+      }
+    }
+
+    async function updateCard(cardId, patch) {
+      const card = cards.find(item => item.id === cardId);
+      if (!card) return;
+      const now = nowIso();
+      const updated = { ...card, ...patch, updatedAt: now, lastTouchedAt: patch.lastTouchedAt || now };
+      await putRecord('cards', updated);
+      await refreshData();
+    }
+
+    async function moveCard(cardId, state, extra = {}) {
+      const patch = {
+        state,
+        seenAt: extra.seenAt === undefined ? nowIso() : extra.seenAt,
+        outcomeId: state === STATES.WEEK ? (extra.outcomeId ?? null) : null,
+        weekOf: state === STATES.WEEK ? (extra.weekOf || currentWeekKey()) : null,
+        deletedAt: state === STATES.TRASH ? nowIso() : null,
+        ...extra
+      };
+      await updateCard(cardId, patch);
+    }
+
+    async function markSeen(cardId) {
+      await updateCard(cardId, { seenAt: nowIso(), lastTouchedAt: cards.find(c => c.id === cardId)?.lastTouchedAt || nowIso() });
+    }
+
+    function renderAll() {
+      renderContextSuggestions();
+      renderTriage();
+      renderInbox();
+      renderLater();
+      renderOutcomes();
+      renderWeek();
+      renderArchive();
+      renderSearch();
+      renderTrashStatus();
+      elements.weekLabel.textContent = formatWeekRange();
+    }
+
+    function renderContextSuggestions() {
+      const unique = new Map();
+      cards.forEach(card => {
+        if (!card.context) return;
+        const key = normalizeArabic(card.context);
+        if (!unique.has(key)) unique.set(key, card.context);
+      });
+      elements.contextSuggestions.replaceChildren(...[...unique.values()].sort((a, b) => a.localeCompare(b, 'ar')).map(value => {
+        const option = document.createElement('option');
+        option.value = value;
+        return option;
+      }));
+    }
+
+    function renderTriage() {
+      const unseen = cards
+        .filter(card => card.state === STATES.INBOX && !card.seenAt)
+        .sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
+      const card = unseen[0];
+      if (!card) {
+        elements.triagePanel.classList.remove('visible');
+        elements.triagePanel.dataset.cardId = '';
+        return;
+      }
+      elements.triagePanel.dataset.cardId = card.id;
+      elements.triageText.textContent = card.text;
+      elements.triagePanel.classList.add('visible');
+    }
+
+    function renderInbox() {
+      const inboxCards = cards.filter(card => card.state === STATES.INBOX);
+      renderCardList(elements.inboxList, inboxCards, 'لا يوجد شيء في الوارد.');
+    }
+
+    function renderLater() {
+      const laterCards = cards.filter(card => card.state === STATES.LATER);
+      elements.laterCount.textContent = String(laterCards.length);
+      renderCardList(elements.laterList, laterCards, 'لا توجد عناصر مؤجلة.');
+    }
+
+    function currentOutcomes() {
+      return outcomes.filter(outcome => outcome.weekOf === currentWeekKey());
+    }
+
+    function renderOutcomes() {
+      const weekOutcomes = currentOutcomes();
+      elements.outcomeCount.textContent = `${weekOutcomes.length} / 3`;
+      elements.outcomeInput.disabled = weekOutcomes.length >= 3;
+      elements.addOutcomeButton.disabled = weekOutcomes.length >= 3;
+      elements.outcomeList.replaceChildren(...weekOutcomes.map((outcome, index) => {
+        const row = document.createElement('div');
+        row.className = `outcome${outcome.done ? ' done' : ''}`;
+
+        const checkbox = document.createElement('input');
+        checkbox.type = 'checkbox';
+        checkbox.className = 'checkbox';
+        checkbox.checked = outcome.done;
+        checkbox.setAttribute('aria-label', `إكمال ${outcome.title}`);
+        checkbox.addEventListener('change', () => toggleOutcome(outcome.id, checkbox.checked));
+
+        const title = document.createElement('div');
+        title.className = 'outcome-title';
+        title.dir = 'auto';
+        title.textContent = outcome.title;
+
+        const controls = document.createElement('div');
+        controls.style.display = 'flex';
+        controls.style.alignItems = 'center';
+        controls.style.gap = '4px';
+
+        const indexBadge = document.createElement('span');
+        indexBadge.className = 'outcome-index';
+        indexBadge.textContent = String(index + 1);
+
+        const remove = document.createElement('button');
+        remove.className = 'action-link danger';
+        remove.textContent = '×';
+        remove.title = 'حذف النتيجة';
+        remove.addEventListener('click', () => removeOutcome(outcome.id));
+
+        controls.append(indexBadge, remove);
+        row.append(checkbox, title, controls);
+        return row;
+      }));
+    }
+
+    function renderWeek() {
+      const weekKey = currentWeekKey();
+      const active = cards.filter(card => card.state === STATES.WEEK && card.weekOf === weekKey);
+      const carried = cards.filter(card => card.state === STATES.WEEK && card.weekOf !== weekKey);
+      const weekOutcomes = currentOutcomes();
+      elements.weekGroups.replaceChildren();
+
+      weekOutcomes.forEach(outcome => {
+        const outcomeCards = active.filter(card => card.outcomeId === outcome.id);
+        elements.weekGroups.append(createGroup(outcome.title, outcomeCards, 'لا توجد عناصر مرتبطة بهذه النتيجة.'));
+      });
+
+      const unassigned = active.filter(card => !card.outcomeId || !weekOutcomes.some(outcome => outcome.id === card.outcomeId));
+      elements.weekGroups.append(createGroup('غير مرتبط بنتيجة', unassigned, 'لا توجد أعمال غير مرتبطة.'));
+
+      if (carried.length) {
+        const group = createGroup('مرحّل من أسبوع سابق', carried, '');
+        const transfer = document.createElement('button');
+        transfer.className = 'secondary-btn small-btn';
+        transfer.textContent = 'نقلها إلى الأسبوع الحالي';
+        transfer.style.marginTop = '9px';
+        transfer.addEventListener('click', async () => {
+          const updated = carried.map(card => ({ ...card, weekOf: weekKey, outcomeId: null, updatedAt: nowIso(), lastTouchedAt: nowIso() }));
+          await putMany('cards', updated);
+          await refreshData();
+          showToast(`تم ترحيل ${updated.length} عناصر.`);
+        });
+        group.append(transfer);
+        elements.weekGroups.append(group);
+      }
+    }
+
+    function createGroup(title, groupCards, emptyMessage) {
+      const group = document.createElement('section');
+      group.className = 'group';
+      const heading = document.createElement('h3');
+      heading.className = 'group-title';
+      heading.dir = 'auto';
+      heading.textContent = `${title} · ${groupCards.length}`;
+      const list = document.createElement('div');
+      list.className = 'card-list';
+      renderCardList(list, groupCards, emptyMessage);
+      group.append(heading, list);
+      return group;
+    }
+
+    function renderArchive() {
+      const archived = cards.filter(card => card.state === STATES.ARCHIVE);
+      elements.archiveCount.textContent = String(archived.length);
+      renderCardList(elements.archiveList, archived, 'الأرشيف فارغ.');
+    }
+
+    function renderSearch() {
+      const query = elements.searchInput.value.trim();
+      const from = elements.dateFrom.value;
+      const to = elements.dateTo.value;
+      const active = Boolean(query || from || to);
+
+      if (!active) {
+        elements.searchList.replaceChildren();
+        showOnlyView(currentView);
+        return;
+      }
+
+      const normalizedQuery = normalizeArabic(query);
+      const fromTime = from ? new Date(`${from}T00:00:00`).getTime() : -Infinity;
+      const toTime = to ? new Date(`${to}T23:59:59.999`).getTime() : Infinity;
+      const terms = normalizedQuery.split(' ').filter(Boolean);
+      const results = cards.filter(card => {
+        if (card.state === STATES.TRASH) return false;
+        const created = new Date(card.createdAt).getTime();
+        if (created < fromTime || created > toTime) return false;
+        if (!terms.length) return true;
+        const haystack = normalizeArabic(`${card.text} ${card.context || ''} ${stateLabels[card.state] || ''}`);
+        return terms.every(term => haystack.includes(term));
+      });
+
+      elements.searchCount.textContent = String(results.length);
+      elements.searchResultsNote.textContent = query ? `البحث المطبع عن: «${query}»` : 'نتائج نطاق التاريخ المحدد.';
+      renderCardList(elements.searchList, results, 'لا توجد نتائج مطابقة.');
+      showOnlyView('search');
+    }
+
+    function renderCardList(container, list, emptyMessage) {
+      if (!list.length) {
+        const empty = document.createElement('div');
+        empty.className = 'empty';
+        empty.textContent = emptyMessage;
+        container.replaceChildren(empty);
+        return;
+      }
+      container.replaceChildren(...list.map(createCardElement));
+    }
+
+    function createCardElement(card) {
+      const article = document.createElement('article');
+      article.className = 'card';
+      article.dataset.cardId = card.id;
+
+      const text = document.createElement('p');
+      text.className = 'card-text';
+      text.dir = 'auto';
+      text.textContent = card.text;
+
+      const meta = document.createElement('div');
+      meta.className = 'card-meta';
+      const date = document.createElement('span');
+      date.textContent = `${formatDate(card.createdAt)} · ${formatTime(card.createdAt)}`;
+      meta.append(date);
+
+      if (card.context) {
+        const context = document.createElement('span');
+        context.className = 'context-chip';
+        context.dir = 'auto';
+        context.textContent = card.context;
+        meta.append(context);
+      }
+
+      if (card.pinned) {
+        const pinned = document.createElement('span');
+        pinned.className = 'state-chip';
+        pinned.textContent = 'مثبّت';
+        meta.append(pinned);
+      }
+
+      if (elements.searchInput.value.trim() || elements.dateFrom.value || elements.dateTo.value) {
+        const state = document.createElement('span');
+        state.className = 'state-chip';
+        state.textContent = stateLabels[card.state] || card.state;
+        meta.append(state);
+      }
+
+      const actions = document.createElement('div');
+      actions.className = 'card-actions';
+      appendCardActions(actions, card);
+
+      article.append(text, meta, actions);
+      return article;
+    }
+
+    function actionButton(label, handler, className = '') {
+      const button = document.createElement('button');
+      button.className = `action-link ${className}`.trim();
+      button.textContent = label;
+      button.addEventListener('click', handler);
+      return button;
+    }
+
+    function appendCardActions(container, card) {
+      if (card.state === STATES.INBOX) {
+        container.append(
+          actionButton('هذا الأسبوع', () => moveCard(card.id, STATES.WEEK), 'primary'),
+          actionButton('لاحقًا', () => moveCard(card.id, STATES.LATER)),
+          actionButton('أرشفة', () => moveCard(card.id, STATES.ARCHIVE))
+        );
+      } else if (card.state === STATES.LATER) {
+        container.append(
+          actionButton('هذا الأسبوع', () => moveCard(card.id, STATES.WEEK), 'primary'),
+          actionButton(card.pinned ? 'إلغاء التثبيت' : 'تثبيت', () => updateCard(card.id, { pinned: !card.pinned })),
+          actionButton('إلى الوارد', () => moveCard(card.id, STATES.INBOX, { seenAt: nowIso() })),
+          actionButton('أرشفة', () => moveCard(card.id, STATES.ARCHIVE))
+        );
+      } else if (card.state === STATES.WEEK) {
+        container.append(
+          actionButton('أُنجز', () => moveCard(card.id, STATES.ARCHIVE), 'primary'),
+          actionButton('لاحقًا', () => moveCard(card.id, STATES.LATER)),
+          actionButton('إلى الوارد', () => moveCard(card.id, STATES.INBOX, { seenAt: nowIso() }))
+        );
+      } else if (card.state === STATES.ARCHIVE) {
+        container.append(actionButton('استعادة إلى الوارد', () => moveCard(card.id, STATES.INBOX, { seenAt: nowIso() }), 'primary'));
+      }
+      container.append(actionButton('تحرير', () => openEditDialog(card.id)));
+    }
+
+    function showOnlyView(name) {
+      $$('.view').forEach(view => view.classList.toggle('active', view.dataset.view === name));
+      $$('.nav-btn').forEach(button => button.classList.toggle('active', button.dataset.target === currentView));
+    }
+
+    function switchView(name) {
+      currentView = name;
+      if (elements.searchInput.value || elements.dateFrom.value || elements.dateTo.value) {
+        elements.searchInput.value = '';
+        elements.dateFrom.value = '';
+        elements.dateTo.value = '';
+      }
+      showOnlyView(name);
+      if (name === 'inbox') focusCapture();
+    }
+
+    async function addOutcome() {
+      const title = elements.outcomeInput.value.trim();
+      if (!title) return;
+      const weekOutcomes = currentOutcomes();
+      if (weekOutcomes.length >= 3) {
+        showToast('الحد الأقصى ثلاث نتائج للأسبوع.');
+        return;
+      }
+      const now = nowIso();
+      await putRecord('outcomes', {
+        id: uid('outcome'),
+        title,
+        weekOf: currentWeekKey(),
+        done: false,
+        createdAt: now,
+        updatedAt: now
+      });
+      elements.outcomeInput.value = '';
+      await refreshData();
+    }
+
+    async function toggleOutcome(id, done) {
+      const outcome = outcomes.find(item => item.id === id);
+      if (!outcome) return;
+      await putRecord('outcomes', { ...outcome, done, updatedAt: nowIso() });
+      await refreshData();
+    }
+
+    async function removeOutcome(id) {
+      const outcome = outcomes.find(item => item.id === id);
+      if (!outcome) return;
+      if (!confirm(`حذف نتيجة «${outcome.title}»؟ ستبقى عناصرها في الأسبوع دون نتيجة.`)) return;
+      const affected = cards.filter(card => card.outcomeId === id).map(card => ({ ...card, outcomeId: null, updatedAt: nowIso(), lastTouchedAt: nowIso() }));
+      await Promise.all([deleteRecord('outcomes', id), putMany('cards', affected)]);
+      await refreshData();
+    }
+
+    function openEditDialog(cardId) {
+      const card = cards.find(item => item.id === cardId);
+      if (!card) return;
+      elements.editCardId.value = card.id;
+      elements.editText.value = card.text;
+      elements.editContext.value = card.context || '';
+      elements.editPinned.checked = Boolean(card.pinned);
+      elements.editOutcomeGroup.hidden = card.state !== STATES.WEEK;
+      populateOutcomeSelect(card.outcomeId);
+      elements.editDialog.showModal();
+      setTimeout(() => elements.editText.focus(), 80);
+    }
+
+    function populateOutcomeSelect(selectedId = null) {
+      const options = [new Option('دون نتيجة', '')];
+      currentOutcomes().forEach(outcome => options.push(new Option(outcome.title, outcome.id)));
+      elements.editOutcome.replaceChildren(...options);
+      elements.editOutcome.value = selectedId || '';
+    }
+
+    async function saveEdit(event) {
+      event.preventDefault();
+      const id = elements.editCardId.value;
+      const card = cards.find(item => item.id === id);
+      const text = elements.editText.value.trim();
+      if (!card || !text) return;
+      const selectedOutcome = card.state === STATES.WEEK ? (elements.editOutcome.value || null) : null;
+      const patch = {
+        text,
+        context: canonicalContext(elements.editContext.value),
+        pinned: elements.editPinned.checked,
+        outcomeId: selectedOutcome,
+        weekOf: card.state === STATES.WEEK && selectedOutcome ? currentWeekKey() : card.weekOf
+      };
+      await updateCard(id, patch);
+      elements.editDialog.close();
+      showToast('تم حفظ التعديل.');
+    }
+
+    async function deleteEditedCard() {
+      const id = elements.editCardId.value;
+      if (!id) return;
+      await moveCard(id, STATES.TRASH);
+      elements.editDialog.close();
+      showToast('نُقل العنصر إلى المحذوفات.', 'تراجع', async () => {
+        await moveCard(id, STATES.INBOX, { seenAt: nowIso() });
+      });
+    }
+
+    async function startReview() {
+      await processDecay();
+      reviewQueue = cards.filter(card => card.state === STATES.INBOX).sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
+      reviewIndex = 0;
+      elements.reviewDialog.showModal();
+      renderReviewStep();
+    }
+
+    function appendReviewDecayNotice(container) {
+      if (!decayUndo.length) return;
+      const notice = document.createElement('div');
+      notice.className = 'review-card';
+      const text = document.createElement('p');
+      text.className = 'review-text';
+      text.textContent = `انتقلت ${decayUndo.length} عناصر خاملة من «لاحقًا» إلى الأرشيف.`;
+      const undo = document.createElement('button');
+      undo.className = 'quiet-btn small-btn';
+      undo.style.marginTop = '10px';
+      undo.textContent = 'تراجع';
+      undo.addEventListener('click', async () => {
+        await undoDecay();
+        renderReviewStep();
+      });
+      notice.append(text, undo);
+      container.append(notice);
+    }
+
+    function renderReviewStep() {
+      elements.reviewContent.replaceChildren();
+      appendReviewDecayNotice(elements.reviewContent);
+      if (!reviewQueue.length || reviewIndex >= reviewQueue.length) {
+        const finished = document.createElement('div');
+        finished.className = 'empty';
+        finished.innerHTML = '<strong>اكتملت مراجعة الوارد.</strong><br><span class="muted">صدّر نسخة احتياطية بعد إغلاق الأسبوع.</span>';
+        const actions = document.createElement('div');
+        actions.className = 'dialog-actions';
+        const exportButton = document.createElement('button');
+        exportButton.className = 'secondary-btn';
+        exportButton.textContent = 'تصدير JSON';
+        exportButton.addEventListener('click', exportJson);
+        const close = document.createElement('button');
+        close.className = 'primary-btn';
+        close.textContent = 'إنهاء';
+        close.addEventListener('click', () => {
+          elements.reviewDialog.close();
+        });
+        actions.append(exportButton, close);
+        elements.reviewContent.append(finished, actions);
+        return;
+      }
+
+      const card = reviewQueue[reviewIndex];
+      const wrapper = document.createElement('div');
+      const progress = document.createElement('div');
+      progress.className = 'review-progress';
+      progress.textContent = `${reviewIndex + 1} من ${reviewQueue.length}`;
+      const cardBox = document.createElement('div');
+      cardBox.className = 'review-card';
+      const text = document.createElement('p');
+      text.className = 'review-text';
+      text.dir = 'auto';
+      text.textContent = card.text;
+      cardBox.append(text);
+
+      const contextGroup = document.createElement('div');
+      contextGroup.className = 'form-group';
+      const label = document.createElement('label');
+      label.textContent = 'السياق — اختياري';
+      const contextInput = document.createElement('input');
+      contextInput.className = 'field';
+      contextInput.setAttribute('list', 'contextSuggestions');
+      contextInput.dir = 'auto';
+      contextInput.value = card.context || '';
+      contextInput.placeholder = 'اتركه فارغًا أو اكتب سياقًا';
+      contextGroup.append(label, contextInput);
+
+      const actions = document.createElement('div');
+      actions.className = 'review-actions';
+      const choices = [
+        ['هذا الأسبوع', STATES.WEEK, 'primary-btn'],
+        ['لاحقًا', STATES.LATER, 'secondary-btn'],
+        ['أرشفة', STATES.ARCHIVE, 'quiet-btn'],
+        ['حذف', STATES.TRASH, 'danger-btn']
+      ];
+      choices.forEach(([labelText, state, className]) => {
+        const button = document.createElement('button');
+        button.className = className;
+        button.textContent = labelText;
+        button.addEventListener('click', async () => {
+          await moveCard(card.id, state, { context: canonicalContext(contextInput.value) });
+          reviewIndex += 1;
+          renderReviewStep();
+        });
+        actions.append(button);
+      });
+
+      wrapper.append(progress, cardBox, contextGroup, actions);
+      elements.reviewContent.append(wrapper);
+      setTimeout(() => contextInput.focus(), 70);
+    }
+
+    async function processDecay() {
+      decayUndo = [];
+      const cutoff = Date.now() - LATER_DECAY_DAYS * DAY;
+      const stale = cards.filter(card => card.state === STATES.LATER && !card.pinned && new Date(card.lastTouchedAt || card.updatedAt || card.createdAt).getTime() < cutoff);
+      if (!stale.length) return;
+      decayUndo = stale.map(card => ({ ...card }));
+      const now = nowIso();
+      const archived = stale.map(card => ({ ...card, state: STATES.ARCHIVE, updatedAt: now, lastTouchedAt: now, outcomeId: null, weekOf: null }));
+      await putMany('cards', archived);
+      await refreshData();
+      return archived.length;
+    }
+
+    async function undoDecay() {
+      if (!decayUndo.length) return;
+      await putMany('cards', decayUndo);
+      const count = decayUndo.length;
+      decayUndo = [];
+      await refreshData();
+      showToast(`تمت استعادة ${count} عناصر إلى «لاحقًا».`);
+    }
+
+    async function cleanOldTrash() {
+      const cutoff = Date.now() - TRASH_RETENTION_DAYS * DAY;
+      const expired = cards.filter(card => card.state === STATES.TRASH && card.deletedAt && new Date(card.deletedAt).getTime() < cutoff);
+      if (!expired.length) return;
+      await Promise.all(expired.map(card => deleteRecord('cards', card.id)));
+      await refreshData();
+    }
+
+    function renderTrashStatus() {
+      const trash = cards.filter(card => card.state === STATES.TRASH);
+      elements.trashStatus.textContent = trash.length ? `${trash.length} عناصر؛ تُحذف نهائيًا بعد ${TRASH_RETENTION_DAYS} أيام.` : 'لا توجد عناصر محذوفة.';
+      elements.restoreTrashButton.disabled = !trash.length;
+      elements.emptyTrashButton.disabled = !trash.length;
+    }
+
+    async function restoreTrash() {
+      const trash = cards.filter(card => card.state === STATES.TRASH);
+      const now = nowIso();
+      await putMany('cards', trash.map(card => ({ ...card, state: STATES.INBOX, deletedAt: null, seenAt: now, updatedAt: now, lastTouchedAt: now })));
+      await refreshData();
+      showToast(`تمت استعادة ${trash.length} عناصر.`);
+    }
+
+    async function emptyTrash() {
+      const trash = cards.filter(card => card.state === STATES.TRASH);
+      if (!trash.length || !confirm('حذف كل المحذوفات نهائيًا؟ لا يمكن التراجع.')) return;
+      await Promise.all(trash.map(card => deleteRecord('cards', card.id)));
+      await refreshData();
+      showToast('تم إفراغ المحذوفات.');
+    }
+
+    async function checkPersistence() {
+      if (!navigator.storage) {
+        elements.storageStatus.textContent = 'المتصفح لا يعرض حالة التخزين الدائم. استخدم تصدير JSON بانتظام.';
+        elements.requestPersistenceButton.disabled = true;
+        return;
+      }
+      try {
+        const persisted = navigator.storage.persisted ? await navigator.storage.persisted() : false;
+        const estimate = navigator.storage.estimate ? await navigator.storage.estimate() : null;
+        const usage = estimate?.usage ? formatBytes(estimate.usage) : null;
+        elements.storageStatus.textContent = persisted
+          ? `التخزين الدائم مفعّل${usage ? ` · الاستخدام ${usage}` : ''}.`
+          : `التخزين محلي لكنه غير مضمون ضد الإخلاء${usage ? ` · الاستخدام ${usage}` : ''}.`;
+        elements.requestPersistenceButton.disabled = persisted || !navigator.storage.persist;
+      } catch (error) {
+        elements.storageStatus.textContent = 'تعذر فحص التخزين. صدّر JSON دوريًا.';
+      }
+    }
+
+    async function requestPersistence() {
+      if (!navigator.storage?.persist) return;
+      const granted = await navigator.storage.persist();
+      await checkPersistence();
+      showToast(granted ? 'تم تفعيل التخزين الدائم.' : 'لم يمنح المتصفح التخزين الدائم؛ استمر بالنسخ الاحتياطي.');
+    }
+
+    function formatBytes(bytes) {
+      if (bytes < 1024) return `${bytes} B`;
+      if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+      return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+    }
+
+    async function updateBackupStatus() {
+      const lastExportAt = await getSetting('lastExportAt');
+      if (!lastExportAt || !validDate(lastExportAt)) {
+        elements.exportStatus.textContent = 'لم تُنشأ نسخة JSON بعد. JSON للاستعادة الكاملة، وMarkdown للقراءة داخل Obsidian.';
+        return;
+      }
+      const ageDays = Math.floor((Date.now() - new Date(lastExportAt).getTime()) / DAY);
+      elements.exportStatus.textContent = ageDays >= 7
+        ? `آخر نسخة JSON قبل ${ageDays} أيام — يُنصح بالتصدير الآن.`
+        : `آخر نسخة JSON: ${formatDate(lastExportAt)} · ${formatTime(lastExportAt)}.`;
+    }
+
+    async function exportJson() {
+      const payload = {
+        schemaVersion: 1,
+        app: 'Mersah',
+        exportedAt: nowIso(),
+        cards,
+        outcomes
+      };
+      const content = JSON.stringify(payload, null, 2);
+      const delivered = await deliverFile(`mersah-backup-${fileDate()}.json`, content, 'application/json');
+      if (delivered) {
+        await putSetting('lastExportAt', nowIso());
+        await updateBackupStatus();
+      }
+    }
+
+    async function exportMarkdown() {
+      const content = buildMarkdown();
+      await deliverFile(`mersah-${fileDate()}.md`, content, 'text/markdown');
+    }
+
+    function fileDate() {
+      const d = new Date();
+      return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+    }
+
+    function buildMarkdown() {
+      const weekKey = currentWeekKey();
+      const weekOutcomes = currentOutcomes();
+      const weekCards = cards.filter(card => card.state === STATES.WEEK);
+      const sections = [];
+      sections.push('---');
+      sections.push(`exported: ${formatDate(new Date())}`);
+      sections.push('source: Mersah');
+      sections.push('schema: 1');
+      sections.push('---', '');
+      sections.push('# نتائج الأسبوع', '');
+
+      if (!weekOutcomes.length) sections.push('_لا توجد نتائج محددة._', '');
+      weekOutcomes.forEach(outcome => {
+        sections.push(`## ${escapeMarkdown(outcome.title)}${outcome.done ? ' ✓' : ''}`, '');
+        const related = weekCards.filter(card => card.outcomeId === outcome.id && card.weekOf === weekKey);
+        if (!related.length) sections.push('- _لا توجد عناصر مرتبطة._');
+        related.forEach(card => sections.push(markdownCard(card, true)));
+        sections.push('');
+      });
+
+      const unassigned = weekCards.filter(card => card.weekOf === weekKey && (!card.outcomeId || !weekOutcomes.some(outcome => outcome.id === card.outcomeId)));
+      sections.push('# هذا الأسبوع — دون نتيجة', '');
+      if (!unassigned.length) sections.push('_فارغ._');
+      unassigned.forEach(card => sections.push(markdownCard(card, true)));
+      sections.push('');
+
+      const carried = weekCards.filter(card => card.weekOf !== weekKey);
+      sections.push('# مرحّل من أسابيع سابقة', '');
+      if (!carried.length) sections.push('_فارغ._');
+      carried.forEach(card => sections.push(markdownCard(card, true)));
+      sections.push('');
+
+      const orderedSections = [
+        ['الوارد', STATES.INBOX],
+        ['لاحقًا', STATES.LATER],
+        ['الأرشيف', STATES.ARCHIVE]
+      ];
+      orderedSections.forEach(([title, state]) => {
+        sections.push(`# ${title}`, '');
+        const items = cards.filter(card => card.state === state);
+        if (!items.length) sections.push('_فارغ._');
+        items.forEach(card => sections.push(markdownCard(card, false)));
+        sections.push('');
+      });
+
+      return sections.join('\n');
+    }
+
+    function markdownCard(card, checkbox) {
+      const prefix = checkbox ? '- [ ]' : '-';
+      const context = card.context ? ` ${contextTag(card.context)}` : '';
+      const pinned = card.pinned ? ' 📌' : '';
+      return `${prefix} ${formatDate(card.createdAt)} — ${escapeMarkdown(card.text).replace(/\n/g, ' / ')}${context}${pinned}`;
+    }
+
+    function contextTag(context) {
+      const tag = context.trim().replace(/\s+/g, '_').replace(/[\\/#[\]^|]/g, '');
+      return tag ? `#${tag}` : '';
+    }
+
+    function escapeMarkdown(value) {
+      return String(value).replace(/([*_`])/g, '\\$1');
+    }
+
+    async function deliverFile(name, content, type) {
+      const file = new File([content], name, { type });
+      try {
+        if (navigator.share && navigator.canShare?.({ files: [file] })) {
+          await navigator.share({ files: [file], title: name });
+          return true;
+        }
+      } catch (error) {
+        if (error?.name === 'AbortError') return false;
+      }
+      const url = URL.createObjectURL(file);
+      const anchor = document.createElement('a');
+      anchor.href = url;
+      anchor.download = name;
+      document.body.append(anchor);
+      anchor.click();
+      anchor.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+      return true;
+    }
+
+    async function importJson(file) {
+      if (!file) return;
+      try {
+        const raw = await file.text();
+        const data = JSON.parse(raw);
+        if (!Array.isArray(data.cards) || !Array.isArray(data.outcomes)) throw new Error('بنية الملف غير صالحة.');
+        if (!confirm(`دمج ${data.cards.length} عناصر و${data.outcomes.length} نتائج مع البيانات الحالية؟ النسخة الأحدث لكل معرّف ستفوز.`)) return;
+        const merged = await mergeDatabase(data.cards, data.outcomes);
+        await refreshData();
+        elements.settingsDialog.close();
+        showToast(`اكتمل الدمج: ${merged.cards} عناصر و${merged.outcomes} نتائج محدّثة.`);
+      } catch (error) {
+        alert(`تعذر الاستيراد: ${error.message || 'ملف غير صالح'}`);
+      } finally {
+        elements.importInput.value = '';
+      }
+    }
+
+    function showToast(message, actionLabel = '', action = null, duration = 3500) {
+      clearTimeout(toastTimer);
+      elements.toastText.textContent = message;
+      if (actionLabel && action) {
+        elements.toastAction.hidden = false;
+        elements.toastAction.textContent = actionLabel;
+        elements.toastAction.onclick = async () => {
+          elements.toast.classList.remove('visible');
+          await action();
+        };
+      } else {
+        elements.toastAction.hidden = true;
+        elements.toastAction.onclick = null;
+      }
+      elements.toast.classList.add('visible');
+      toastTimer = setTimeout(() => elements.toast.classList.remove('visible'), duration);
+    }
+
+    function bindEvents() {
+      elements.captureInput.addEventListener('input', () => autoGrow(elements.captureInput));
+      elements.captureInput.addEventListener('keydown', event => {
+        if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) {
+          event.preventDefault();
+          capture();
+        }
+      });
+      elements.captureButton.addEventListener('click', capture);
+
+      $$('.nav-btn').forEach(button => button.addEventListener('click', () => switchView(button.dataset.target)));
+
+      elements.searchFiltersButton.addEventListener('click', () => {
+        const expanded = elements.searchPanel.classList.toggle('expanded');
+        elements.searchFiltersButton.setAttribute('aria-expanded', String(expanded));
+      });
+      [elements.searchInput, elements.dateFrom, elements.dateTo].forEach(input => input.addEventListener('input', renderSearch));
+
+      elements.triageWeek.addEventListener('click', async () => {
+        const id = elements.triagePanel.dataset.cardId;
+        if (id) await moveCard(id, STATES.WEEK);
+      });
+      elements.triageSeen.addEventListener('click', async () => {
+        const id = elements.triagePanel.dataset.cardId;
+        if (id) await markSeen(id);
+      });
+
+      elements.startReviewButton.addEventListener('click', startReview);
+      elements.addOutcomeButton.addEventListener('click', addOutcome);
+      elements.outcomeInput.addEventListener('keydown', event => {
+        if (event.key === 'Enter') { event.preventDefault(); addOutcome(); }
+      });
+
+      elements.editForm.addEventListener('submit', saveEdit);
+      elements.editDeleteButton.addEventListener('click', deleteEditedCard);
+      elements.settingsButton.addEventListener('click', async () => {
+        elements.settingsDialog.showModal();
+        await Promise.all([checkPersistence(), updateBackupStatus()]);
+      });
+      elements.requestPersistenceButton.addEventListener('click', requestPersistence);
+      elements.exportJsonButton.addEventListener('click', exportJson);
+      elements.exportMarkdownButton.addEventListener('click', exportMarkdown);
+      elements.importInput.addEventListener('change', () => importJson(elements.importInput.files?.[0]));
+      elements.restoreTrashButton.addEventListener('click', restoreTrash);
+      elements.emptyTrashButton.addEventListener('click', emptyTrash);
+
+      $$('[data-close-dialog]').forEach(button => button.addEventListener('click', () => {
+        const dialog = document.getElementById(button.dataset.closeDialog);
+        dialog?.close();
+      }));
+
+      elements.reviewDialog.addEventListener('close', () => { decayUndo = []; });
+
+      [elements.editDialog, elements.reviewDialog, elements.settingsDialog].forEach(dialog => {
+        dialog.addEventListener('click', event => {
+          const rect = dialog.getBoundingClientRect();
+          const outside = event.clientX < rect.left || event.clientX > rect.right || event.clientY < rect.top || event.clientY > rect.bottom;
+          if (outside) dialog.close();
+        });
+      });
+
+      document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'visible' && currentView === 'inbox' && !document.querySelector('dialog[open]')) focusCapture();
+      });
+    }
+
+    async function registerServiceWorker() {
+      if (!('serviceWorker' in navigator)) return;
+      try {
+        await navigator.serviceWorker.register('./sw.js', { scope: './' });
+      } catch (error) {
+        console.warn('Service worker registration failed:', error);
+      }
+    }
+
+    async function init() {
+      bindEvents();
+      await openDatabase();
+      await refreshData();
+      await cleanOldTrash();
+      await checkPersistence();
+      await registerServiceWorker();
+      focusCapture();
+    }
+
+    init().catch(error => {
+      console.error(error);
+      alert('تعذر تشغيل مرساة. حدّث الصفحة أو تأكد من سماح المتصفح بالتخزين المحلي.');
+    });
+  })();
+  </script>
+</body>
+</html>
