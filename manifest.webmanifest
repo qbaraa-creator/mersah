@@ -1,15 +1,15 @@
 {
   "name": "مرساة",
   "short_name": "مرساة",
-  "description": "سطح التقاط شخصي سريع ومراجعة أسبوعية بلا تعقيد.",
+  "description": "دفتر يومي محلي للمذكرات والمهام والالتقاطات.",
   "lang": "ar",
   "dir": "rtl",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",
   "orientation": "any",
-  "background_color": "#f3f0e9",
-  "theme_color": "#25322d",
+  "background_color": "#f4f2ec",
+  "theme_color": "#204238",
   "icons": [
     {
       "src": "./icons/icon-180.png",
@@ -28,6 +28,12 @@
       "sizes": "512x512",
       "type": "image/png",
       "purpose": "any maskable"
+    },
+    {
+      "src": "./icons/icon-1024.png",
+      "sizes": "1024x1024",
+      "type": "image/png",
+      "purpose": "any"
     }
   ]
 }
