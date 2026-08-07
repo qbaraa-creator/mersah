@@ -3003,11 +3003,19 @@ async function runExport(task, failureMessage) {
 
 async function registerServiceWorker() {
   if (!('serviceWorker' in navigator)) return;
+  const hadController = Boolean(navigator.serviceWorker.controller);
+  let reloadingForUpdate = false;
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    if (!hadController || reloadingForUpdate) return;
+    reloadingForUpdate = true;
+    window.location.reload();
+  });
   try {
-    await navigator.serviceWorker.register('./sw.js', {
+    const registration = await navigator.serviceWorker.register('./sw.js', {
       scope: './',
       updateViaCache: 'none'
     });
+    await registration.update();
   } catch (error) {
     console.warn('Service worker registration failed:', error);
   }

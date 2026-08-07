@@ -4,13 +4,15 @@
 // index.html أو app.js أو الأيقونات. هذا هو المُشغّل الوحيد للتحديث؛
 // بدونه يبقى المتصفح يخدم النسخة المخزّنة.
 const CACHE_PREFIX = 'mersah-static-';
-const CACHE_NAME = `${CACHE_PREFIX}v52`;
+const CACHE_NAME = `${CACHE_PREFIX}v53`;
 const SHELL_DOCUMENT = './index.html';
-const APP_SHELL = [
+const CORE_SHELL = [
   './',
   SHELL_DOCUMENT,
   './app.js',
-  './manifest.webmanifest',
+  './manifest.webmanifest'
+];
+const OPTIONAL_SHELL = [
   './icons/icon-180.png',
   './icons/icon-192.png',
   './icons/icon-512.png',
@@ -20,6 +22,7 @@ const APP_SHELL = [
   './fonts/plex-arabic-latin-400.woff2',
   './fonts/plex-arabic-latin-600.woff2'
 ];
+const APP_SHELL = [...CORE_SHELL, ...OPTIONAL_SHELL];
 const APP_SHELL_URLS = new Set(APP_SHELL.map(path => new URL(path, self.location).href));
 
 const OFFLINE_FALLBACK = `<!doctype html><html lang="ar" dir="rtl"><meta charset="utf-8">
@@ -29,7 +32,10 @@ const OFFLINE_FALLBACK = `<!doctype html><html lang="ar" dir="rtl"><meta charset
 self.addEventListener('install', event => {
   event.waitUntil(
     caches.open(CACHE_NAME)
-      .then(cache => cache.addAll(APP_SHELL))
+      .then(async cache => {
+        await cache.addAll(CORE_SHELL);
+        await Promise.allSettled(OPTIONAL_SHELL.map(path => cache.add(path)));
+      })
       .then(() => self.skipWaiting())
   );
 });
