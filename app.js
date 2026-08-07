@@ -7,6 +7,8 @@ const LEGACY_DB_NAME = 'mersah-db';
 const DAY = 24 * 60 * 60 * 1000;
 const TRASH_RETENTION_DAYS = 7;
 const BACKUP_REMINDER_DAYS = 7;
+const BACKUP_VERIFICATION_REMINDER_DAYS = 90;
+const PERSISTENCE_RETRY_DAYS = 30;
 const MAX_TEXT_LENGTH = 5000;
 const MAX_SHORT_TEXT = 80;
 const MAX_DIRECTION_LENGTH = 180;
@@ -15,7 +17,7 @@ const MAX_IMPORT_BYTES = 80 * 1024 * 1024;
 const MAX_IMPORT_TOTAL_BYTES = 400 * 1024 * 1024;
 const MAX_IMPORT_ENTRIES = 200000;
 const MAX_IMPORT_ATTACHMENTS = 200000;
-const IMPORT_WRITE_BATCH_SIZE = 1000;
+const BACKUP_SCHEMA_VERSION = 2;
 const MAX_IMAGE_EDGE = 1600;
 const JPEG_QUALITY = 0.82;
 const MAX_FUTURE_DRIFT_MS = DAY;
@@ -86,20 +88,25 @@ let entriesByDate = new Map();
 let entriesByPath = new Map();
 let topEntriesByDate = new Map();
 let attachmentsByEntry = new Map();
+let searchTextByEntryId = new Map();
 let currentView = 'today';
-let activePath = 'consider';
+let activeEntriesPath = 'all';
 let selectedDay = dateKey();
 let selectedDayEditUnlocked = false;
-let daysLimit = 30;
+let activeArchiveMonth = dateKey().slice(0, 7);
 let todayEntriesLimit = ENTRY_PAGE_SIZE;
 let selectedDayEntriesLimit = ENTRY_PAGE_SIZE;
+let entriesResultsLimit = ENTRY_PAGE_SIZE;
 let captureDraftImages = [];
 let editNewImages = [];
 let editRemovedAttachmentIds = new Set();
 let attachmentUrlCache = new Map();
+let observedDayKey = dateKey();
 let toastTimer;
 let selectedDirectionTimer;
-let captureVisibilityFrame;
+let entriesSearchTimer;
+let backupExportDue = false;
+let backupVerificationDue = false;
 
 const $ = (selector, root = document) => root.querySelector(selector);
 const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
@@ -121,23 +128,32 @@ const elements = {
   topCandidates: $('#topCandidates'),
   todayTimeline: $('#todayTimeline'),
   loadMoreTodayButton: $('#loadMoreTodayButton'),
-  pathFilter: $('#pathFilter'),
-  pathList: $('#pathList'),
+  entriesSearchInput: $('#entriesSearchInput'),
+  entriesPathFilters: $('#entriesPathFilters'),
+  entriesFilterOptions: $('#entriesFilterOptions'),
+  entriesFilterSummary: $('#entriesFilterSummary'),
+  entriesDateFrom: $('#entriesDateFrom'),
+  entriesDateTo: $('#entriesDateTo'),
+  entriesSort: $('#entriesSort'),
+  clearEntriesFiltersButton: $('#clearEntriesFiltersButton'),
+  entriesCount: $('#entriesCount'),
+  entriesResultsNote: $('#entriesResultsNote'),
+  entriesList: $('#entriesList'),
+  loadMoreEntriesButton: $('#loadMoreEntriesButton'),
+  archivePreviousMonthButton: $('#archivePreviousMonthButton'),
+  archiveNextMonthButton: $('#archiveNextMonthButton'),
+  archiveMonthInput: $('#archiveMonthInput'),
+  archiveMonthLabel: $('#archiveMonthLabel'),
+  archiveMonthNumeric: $('#archiveMonthNumeric'),
+  archiveMonthSummary: $('#archiveMonthSummary'),
   daysList: $('#daysList'),
-  loadMoreDaysButton: $('#loadMoreDaysButton'),
+  selectedDayPanel: $('#selectedDayPanel'),
   selectedDayTitle: $('#selectedDayTitle'),
   selectedDayMeta: $('#selectedDayMeta'),
   selectedDayDirection: $('#selectedDayDirection'),
   selectedDayDirectionStatus: $('#selectedDayDirectionStatus'),
   editDayButton: $('#editDayButton'),
   selectedDayContent: $('#selectedDayContent'),
-  searchInput: $('#searchInput'),
-  searchPathFilter: $('#searchPathFilter'),
-  dateFrom: $('#dateFrom'),
-  dateTo: $('#dateTo'),
-  searchCount: $('#searchCount'),
-  searchResultsNote: $('#searchResultsNote'),
-  searchList: $('#searchList'),
   captureFab: $('#captureFab'),
   captureDialog: $('#captureDialog'),
   captureForm: $('#captureForm'),
@@ -151,7 +167,8 @@ const elements = {
   editText: $('#editText'),
   editPath: $('#editPath'),
   editDueDate: $('#editDueDate'),
-  editFollowUpDate: $('#editFollowUpDate'),
+  editEntryAge: $('#editEntryAge'),
+  editImagesOptions: $('#editImagesOptions'),
   editTopToday: $('#editTopToday'),
   editExistingImages: $('#editExistingImages'),
   editImageInput: $('#editImageInput'),
@@ -162,12 +179,13 @@ const elements = {
   storageMeter: $('#storageMeter'),
   storageMeterFill: $('#storageMeterFill'),
   requestPersistenceButton: $('#requestPersistenceButton'),
-  captureSideSelect: $('#captureSideSelect'),
   icloudStatus: $('#icloudStatus'),
   exportIcloudButton: $('#exportIcloudButton'),
   exportStatus: $('#exportStatus'),
   exportJsonButton: $('#exportJsonButton'),
   exportMarkdownButton: $('#exportMarkdownButton'),
+  backupVerificationStatus: $('#backupVerificationStatus'),
+  verifyBackupInput: $('#verifyBackupInput'),
   importInput: $('#importInput'),
   migrationStatus: $('#migrationStatus'),
   runMigrationButton: $('#runMigrationButton'),
@@ -224,52 +242,69 @@ async function getAll(storeName) {
 }
 
 async function putRecord(storeName, value) {
-  const db = await openDatabase();
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction(storeName, 'readwrite');
-    tx.objectStore(storeName).put(value);
-    tx.oncomplete = () => resolve(value);
-    tx.onerror = () => reject(tx.error);
-    tx.onabort = () => reject(tx.error || new Error('تم إلغاء الحفظ.'));
+  return runAtomicWrite([storeName], (stores, track) => {
+    track(stores[storeName].put(value));
+    return value;
   });
 }
 
 async function putMany(storeName, values) {
   if (!values.length) return;
-  const db = await openDatabase();
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction(storeName, 'readwrite');
-    const store = tx.objectStore(storeName);
-    values.forEach(value => store.put(value));
-    tx.oncomplete = () => resolve();
-    tx.onerror = () => reject(tx.error);
-    tx.onabort = () => reject(tx.error || new Error('تم إلغاء الحفظ.'));
+  return runAtomicWrite([storeName], (stores, track) => {
+    values.forEach(value => track(stores[storeName].put(value)));
   });
 }
 
 async function deleteRecord(storeName, key) {
-  const db = await openDatabase();
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction(storeName, 'readwrite');
-    tx.objectStore(storeName).delete(key);
-    tx.oncomplete = () => resolve();
-    tx.onerror = () => reject(tx.error);
-    tx.onabort = () => reject(tx.error || new Error('تم إلغاء الحذف.'));
+  return runAtomicWrite([storeName], (stores, track) => {
+    track(stores[storeName].delete(key));
   });
 }
 
 async function writeImportBatch(batch) {
-  const stores = [
-    ['entries', batch.entries],
-    ['daily', batch.daily],
-    ['settings', batch.settings],
-    ['attachments', batch.attachments]
-  ];
-  for (const [storeName, values] of stores) {
-    for (let index = 0; index < values.length; index += IMPORT_WRITE_BATCH_SIZE) {
-      await putMany(storeName, values.slice(index, index + IMPORT_WRITE_BATCH_SIZE));
+  return runAtomicWrite(['entries', 'daily', 'settings', 'attachments'], (stores, track) => {
+    for (const storeName of ['entries', 'daily', 'settings', 'attachments']) {
+      for (const value of batch[storeName] || []) {
+        track(stores[storeName].put(value));
+      }
     }
-  }
+  });
+}
+
+async function runAtomicWrite(storeNames, writer) {
+  const db = await openDatabase();
+  const names = [...new Set(storeNames)];
+  return new Promise((resolve, reject) => {
+    let result;
+    let callbackError = null;
+    let requestError = null;
+    const tx = db.transaction(names, 'readwrite');
+    const stores = Object.fromEntries(names.map(name => [name, tx.objectStore(name)]));
+    const track = request => {
+      request.addEventListener('error', () => {
+        if (!requestError) requestError = request.error;
+      }, { once: true });
+      return request;
+    };
+    try {
+      result = writer(stores, track);
+      if (result && typeof result.then === 'function') {
+        throw new TypeError('كاتب معاملة IndexedDB يجب أن يكون متزامنًا.');
+      }
+    } catch (error) {
+      callbackError = error;
+      try {
+        tx.abort();
+      } catch (abortError) {
+        reject(callbackError);
+      }
+    }
+    tx.oncomplete = () => resolve(result);
+    tx.onerror = () => {};
+    tx.onabort = () => reject(
+      callbackError || requestError || tx.error || new Error('تم إلغاء معاملة الحفظ.')
+    );
+  });
 }
 
 async function getSetting(key, fallback = null) {
@@ -294,6 +329,33 @@ function uid(prefix = 'id') {
   return `${prefix}_${Date.now()}_${Math.random().toString(16).slice(2)}`;
 }
 
+function isQuotaExceededError(error) {
+  let current = error;
+  for (let depth = 0; current && depth < 4; depth += 1) {
+    if (current.name === 'QuotaExceededError'
+        || /quota|storage.+full|disk.+full/i.test(String(current.message || ''))) return true;
+    current = current.cause;
+  }
+  return false;
+}
+
+function storageFailureMessage(error, action = 'حفظ البيانات') {
+  if (isQuotaExceededError(error)) {
+    return `تعذر ${action}: مساحة تخزين مرساة غير كافية. لم تُحفظ تغييرات جزئية؛ صدّر نسخة ثم حرّر مساحة من الجهاز.`;
+  }
+  return `تعذر ${action}. بقيت البيانات السابقة كما هي.`;
+}
+
+function reportStorageFailure(error, action = 'حفظ البيانات') {
+  console.error(`فشل ${action}:`, error);
+  showToast(
+    storageFailureMessage(error, action),
+    isQuotaExceededError(error) ? 'النسخ الاحتياطي' : '',
+    isQuotaExceededError(error) ? openSettingsDialog : null,
+    10_000
+  );
+}
+
 function nowIso() { return new Date().toISOString(); }
 function pad(value) { return String(value).padStart(2, '0'); }
 
@@ -314,6 +376,24 @@ function validDateKey(value) {
   const d = dateFromKey(text);
   const normalized = dateKey(d);
   return Number.isNaN(d.getTime()) || normalized !== text ? null : text;
+}
+
+function validMonthKey(value) {
+  const text = String(value || '');
+  if (!/^\d{4}-\d{2}$/.test(text)) return null;
+  const [year, month] = text.split('-').map(Number);
+  return year >= 1 && month >= 1 && month <= 12 ? text : null;
+}
+
+function monthDate(key) {
+  const [year, month] = String(key).split('-').map(Number);
+  return new Date(year, month - 1, 1);
+}
+
+function shiftMonthKey(key, amount) {
+  const date = monthDate(key);
+  date.setMonth(date.getMonth() + amount);
+  return dateKey(date).slice(0, 7);
 }
 
 function validIso(value) {
@@ -347,6 +427,58 @@ function formatDayMonth(key) {
     day: 'numeric',
     month: 'long'
   }).format(dateFromKey(key));
+}
+
+function formatDayMonthNumeric(key) {
+  const date = dateFromKey(key);
+  return `${pad(date.getDate())}/${pad(date.getMonth() + 1)}`;
+}
+
+function formatMonthLabel(key) {
+  return new Intl.DateTimeFormat('ar-SA-u-ca-gregory-nu-latn', {
+    month: 'long',
+    year: 'numeric'
+  }).format(monthDate(key));
+}
+
+function formatMonthNumeric(key) {
+  const [year, month] = key.split('-');
+  return `${month}/${year}`;
+}
+
+function daysBetweenKeys(olderKey, newerKey) {
+  const older = dateFromKey(olderKey);
+  const newer = dateFromKey(newerKey);
+  return Math.round((Date.UTC(newer.getFullYear(), newer.getMonth(), newer.getDate())
+    - Date.UTC(older.getFullYear(), older.getMonth(), older.getDate())) / DAY);
+}
+
+function entryAgeDays(entry) {
+  return Math.max(0, daysBetweenKeys(entryDate(entry), dateKey()));
+}
+
+function ageDaysLabel(days) {
+  if (days === 0) return 'اليوم';
+  if (days === 1) return 'يوم واحد';
+  if (days === 2) return 'يومان';
+  if (days >= 3 && days <= 10) return `${days} أيام`;
+  return `${days} يومًا`;
+}
+
+function entryCountLabel(count) {
+  if (count === 0) return 'دون إدخالات';
+  if (count === 1) return 'إدخال واحد';
+  if (count === 2) return 'إدخالان';
+  if (count >= 3 && count <= 10) return `${count} إدخالات`;
+  return `${count} إدخالًا`;
+}
+
+function savedDayCountLabel(count) {
+  if (count === 0) return 'لا أيام محفوظة';
+  if (count === 1) return 'يوم محفوظ';
+  if (count === 2) return 'يومان محفوظان';
+  if (count >= 3 && count <= 10) return `${count} أيام محفوظة`;
+  return `${count} يومًا محفوظًا`;
 }
 
 function relativeDayLabel(key) {
@@ -453,6 +585,7 @@ function rebuildDataIndexes() {
   entriesByPath = new Map();
   topEntriesByDate = new Map();
   attachmentsByEntry = new Map();
+  searchTextByEntryId = new Map();
 
   attachments.forEach(attachment => {
     const list = attachmentsByEntry.get(attachment.entryId) || [];
@@ -463,6 +596,7 @@ function rebuildDataIndexes() {
   const topCandidates = new Map();
   entries.forEach(entry => {
     if (entry.status === 'trash') return;
+    searchTextByEntryId.set(entry.id, entrySearchText(entry));
     const day = entryDate(entry);
     const dayEntries = entriesByDate.get(day) || [];
     dayEntries.push(entry);
@@ -497,16 +631,29 @@ function canAddTop(dayKey, exceptId = null) {
 }
 
 async function syncDailyTop(dayKey) {
+  await putRecord('daily', dailyTopRecordForEntries(dayKey, entries));
+}
+
+function dailyTopRecordForEntries(dayKey, sourceEntries, timestamp = nowIso()) {
   const current = dailyRecordFor(dayKey);
-  const ids = topEntriesFor(dayKey).map(entry => entry.id);
-  const now = nowIso();
-  await putRecord('daily', {
+  const order = new Map((current?.topEntryIds || []).map((id, index) => [id, index]));
+  const ids = sourceEntries
+    .filter(entry => entry.status !== 'trash' && entry.topTodayDate === dayKey)
+    .sort((a, b) => {
+      const ai = order.has(a.id) ? order.get(a.id) : 99;
+      const bi = order.has(b.id) ? order.get(b.id) : 99;
+      if (ai !== bi) return ai - bi;
+      return new Date(a.createdAt) - new Date(b.createdAt);
+    })
+    .slice(0, 3)
+    .map(entry => entry.id);
+  return {
     date: dayKey,
     direction: current?.direction || '',
     topEntryIds: ids,
-    createdAt: current?.createdAt || now,
-    updatedAt: now
-  });
+    createdAt: current?.createdAt || timestamp,
+    updatedAt: timestamp
+  };
 }
 
 async function refreshData() {
@@ -533,45 +680,20 @@ function renderAll() {
 }
 
 function renderCurrentView() {
-  if (currentView === 'paths') renderPaths();
+  if (currentView === 'entries') renderEntries();
   else if (currentView === 'days') renderDays();
-  else if (currentView === 'search') renderSearch();
   else renderToday();
-  scheduleCaptureVisibilityCheck();
 }
 
-function scheduleCaptureVisibilityCheck() {
-  cancelAnimationFrame(captureVisibilityFrame);
-  captureVisibilityFrame = requestAnimationFrame(() => {
-    captureVisibilityFrame = requestAnimationFrame(updateCaptureVisibility);
-  });
-}
-
-function updateCaptureVisibility() {
-  const fab = elements.captureFab;
-  const activeView = $('.view.active');
-  if (!fab || !activeView || !fab.isConnected) return;
-  const fabRect = fab.getBoundingClientRect();
-  const controls = $$('button, input, textarea, select, summary, a[href]', activeView);
-  const overlapsControl = controls.some(control => {
-    if (control === fab || control.hidden || control.disabled) return false;
-    const style = getComputedStyle(control);
-    if (style.display === 'none' || style.visibility === 'hidden') return false;
-    const rect = control.getBoundingClientRect();
-    return rect.width > 0 && rect.height > 0 &&
-      rect.left < fabRect.right &&
-      rect.right > fabRect.left &&
-      rect.top < fabRect.bottom &&
-      rect.bottom > fabRect.top;
-  });
-  fab.classList.toggle('avoiding-control', overlapsControl);
+function refreshForNewDay() {
+  const currentDayKey = dateKey();
+  if (currentDayKey === observedDayKey) return;
+  observedDayKey = currentDayKey;
+  renderCurrentView();
 }
 
 function renderStaticOptions() {
   fillSelect(elements.editPath, ROUTABLE_PATH_OPTIONS);
-  fillSelect(elements.pathFilter, ROUTABLE_PATH_OPTIONS);
-  fillSelect(elements.searchPathFilter, { all: 'كل المسارات', ...ROUTABLE_PATH_OPTIONS });
-  elements.pathFilter.value = activePath;
 }
 
 function fillSelect(select, options) {
@@ -586,7 +708,7 @@ function renderToday() {
   const record = dailyRecordFor(today);
   const top = topEntriesFor(today);
   elements.todayLabel.textContent = dayName(today);
-  elements.todayDate.textContent = formatDayMonth(today);
+  elements.todayDate.textContent = `${formatDayMonth(today)} · ${formatDayMonthNumeric(today)}`;
   renderTopProgress(top);
   elements.directionDisplay.textContent = record?.direction || 'حدد توجّه اليوم';
   elements.addTopTaskButton.disabled = top.length >= 3;
@@ -644,27 +766,40 @@ function renderTopTasks(dayKey, top) {
 
 function createTopTaskElement(entry, dayKey) {
   const row = document.createElement('div');
-  row.className = `top-item${entry.status === 'done' ? ' done' : ''}`;
+  row.className = `top-item top-task-item${entry.status === 'done' ? ' done' : ''}`;
   const checkbox = document.createElement('input');
   checkbox.type = 'checkbox';
   checkbox.className = 'checkbox';
   checkbox.checked = entry.status === 'done';
   checkbox.setAttribute('aria-label', `إكمال ${entry.text || 'المهمة'}`);
-  checkbox.addEventListener('change', () => setEntryStatus(entry.id, checkbox.checked ? 'done' : 'open'));
+  checkbox.addEventListener('change', async () => {
+    const nextStatus = checkbox.checked ? 'done' : 'open';
+    try {
+      await setEntryStatus(entry.id, nextStatus);
+    } catch (error) {
+      checkbox.checked = nextStatus !== 'done';
+      reportStorageFailure(error, 'تحديث المهمة');
+    }
+  });
 
   const title = document.createElement('p');
   title.className = 'entry-title';
   title.dir = 'auto';
   title.textContent = entry.text || attachmentOnlyLabel(entry);
 
+  const checkTarget = document.createElement('label');
+  checkTarget.className = 'top-task-check';
+  checkTarget.title = checkbox.getAttribute('aria-label');
+  checkTarget.append(checkbox, title);
+
   const remove = document.createElement('button');
   remove.className = 'action-link danger';
   remove.textContent = '×';
   remove.title = 'إزالة من أهم المهام';
   remove.setAttribute('aria-label', 'إزالة من أهم المهام');
-  remove.addEventListener('click', () => setTopToday(entry.id, null, dayKey));
+  remove.addEventListener('click', () => setTopToday(entry.id, null));
 
-  row.append(checkbox, title, remove);
+  row.append(checkTarget, remove);
   return row;
 }
 
@@ -674,40 +809,248 @@ function renderTodayTimeline(dayKey) {
   elements.loadMoreTodayButton.hidden = list.length <= todayEntriesLimit;
 }
 
-function renderPaths() {
-  const list = sortedPathEntries().slice(0, 120);
-  renderEntryList(elements.pathList, list, 'لا توجد عناصر في هذا المسار.');
+function entrySearchText(entry) {
+  return normalizeArabic([
+    entry.text,
+    entry.context,
+    entry.person,
+    PATHS[entry.path],
+    STATUSES[entry.status],
+    formatDate(entry.createdAt),
+    entry.dueDate,
+    entry.followUpDate
+  ].filter(Boolean).join(' '));
 }
 
-function sortedPathEntries() {
-  return entriesByPath.get(activePath) || [];
+function renderEntries() {
+  const query = clampString(elements.entriesSearchInput.value, 200);
+  const terms = normalizeArabic(query).split(' ').filter(Boolean);
+  const from = validDateKey(elements.entriesDateFrom.value) || '';
+  const to = validDateKey(elements.entriesDateTo.value) || '';
+  const sort = ['newest', 'oldest', 'due'].includes(elements.entriesSort.value)
+    ? elements.entriesSort.value
+    : 'newest';
+
+  const matchingBeforePath = entries.filter(entry => {
+    if (entry.status === 'trash') return false;
+    const createdDay = entryDate(entry);
+    if (from && createdDay < from) return false;
+    if (to && createdDay > to) return false;
+    if (!terms.length) return true;
+    const haystack = searchTextByEntryId.get(entry.id) || entrySearchText(entry);
+    return terms.every(term => haystack.includes(term));
+  });
+
+  const pathCounts = Object.fromEntries(Object.keys(ROUTABLE_PATHS).map(path => [path, 0]));
+  matchingBeforePath.forEach(entry => {
+    if (hasOwn(pathCounts, entry.path)) pathCounts[entry.path] += 1;
+  });
+  renderEntriesPathFilters(matchingBeforePath.length, pathCounts);
+
+  const filtered = activeEntriesPath === 'all'
+    ? matchingBeforePath
+    : matchingBeforePath.filter(entry => entry.path === activeEntriesPath);
+  const results = sortEntriesResults(filtered, sort);
+  const shown = results.slice(0, entriesResultsLimit);
+  const hasFilters = Boolean(query || from || to || activeEntriesPath !== 'all' || sort !== 'newest');
+
+  elements.entriesCount.textContent = String(results.length);
+  elements.entriesResultsNote.textContent = entriesResultsNote(query, results.length, shown.length, sort);
+  elements.loadMoreEntriesButton.hidden = shown.length >= results.length;
+  elements.clearEntriesFiltersButton.disabled = !hasFilters;
+  updateEntriesFilterSummary(from, to, sort);
+  renderEntryList(
+    elements.entriesList,
+    shown,
+    hasFilters ? 'لا توجد نتائج مطابقة.' : 'لا توجد التقاطات بعد.'
+  );
+}
+
+function renderEntriesPathFilters(total, pathCounts) {
+  const options = [
+    ['all', 'الكل', ''],
+    ...Object.entries(ROUTABLE_PATHS).map(([path, label]) => [path, label, PATH_ICONS[path]])
+  ];
+  elements.entriesPathFilters.replaceChildren(...options.map(([path, label, icon]) => {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = `entries-path-button${activeEntriesPath === path ? ' active' : ''}`;
+    button.setAttribute('aria-pressed', String(activeEntriesPath === path));
+    const count = path === 'all' ? total : pathCounts[path] || 0;
+    const name = document.createElement('span');
+    name.className = 'entries-path-name';
+    if (icon) {
+      const iconNode = document.createElement('span');
+      iconNode.className = 'entries-path-icon';
+      iconNode.textContent = icon;
+      iconNode.setAttribute('aria-hidden', 'true');
+      const labelNode = document.createElement('span');
+      labelNode.textContent = label;
+      name.append(iconNode, labelNode);
+    } else {
+      name.textContent = label;
+    }
+    const countNode = document.createElement('span');
+    countNode.className = 'count';
+    countNode.textContent = String(count);
+    button.setAttribute('aria-label', `${label}، ${entryCountLabel(count)}`);
+    button.append(name, countNode);
+    button.addEventListener('click', () => {
+      if (activeEntriesPath === path) return;
+      activeEntriesPath = path;
+      entriesResultsLimit = ENTRY_PAGE_SIZE;
+      renderEntries();
+    });
+    return button;
+  }));
+}
+
+function sortEntriesResults(list, sort) {
+  const sorted = [...list];
+  if (sort === 'oldest') {
+    return sorted.sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
+  }
+  if (sort === 'due') {
+    return sorted.sort((a, b) => {
+      const aDue = validDateKey(a.dueDate) || '9999-12-31';
+      const bDue = validDateKey(b.dueDate) || '9999-12-31';
+      return aDue.localeCompare(bDue) || new Date(b.createdAt) - new Date(a.createdAt);
+    });
+  }
+  return sorted.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+}
+
+function entriesSortLabel(sort) {
+  if (sort === 'oldest') return 'الأقدم';
+  if (sort === 'due') return 'أقرب موعد';
+  return 'الأحدث';
+}
+
+function updateEntriesFilterSummary(from, to, sort) {
+  const parts = [entriesSortLabel(sort)];
+  if (from && to) parts.push(`${formatDateKey(from)}–${formatDateKey(to)}`);
+  else if (from) parts.push(`من ${formatDateKey(from)}`);
+  else if (to) parts.push(`حتى ${formatDateKey(to)}`);
+  elements.entriesFilterSummary.textContent = parts.join(' · ');
+}
+
+function entriesResultsNote(query, total, shown, sort) {
+  const parts = [];
+  if (query) parts.push(`«${query}»`);
+  parts.push(entryCountLabel(total));
+  if (shown < total) parts.push(`تظهر ${shown}`);
+  parts.push(entriesSortLabel(sort));
+  return parts.join(' · ');
+}
+
+function scheduleEntriesSearch() {
+  clearTimeout(entriesSearchTimer);
+  entriesResultsLimit = ENTRY_PAGE_SIZE;
+  entriesSearchTimer = setTimeout(() => {
+    renderEntries();
+  }, 100);
+}
+
+function handleEntriesDateChange(changed) {
+  const from = elements.entriesDateFrom.value;
+  const to = elements.entriesDateTo.value;
+  if (from && to && from > to) {
+    if (changed === 'from') elements.entriesDateTo.value = from;
+    else elements.entriesDateFrom.value = to;
+  }
+  entriesResultsLimit = ENTRY_PAGE_SIZE;
+  renderEntries();
+}
+
+function clearEntriesFilters() {
+  clearTimeout(entriesSearchTimer);
+  elements.entriesSearchInput.value = '';
+  elements.entriesDateFrom.value = '';
+  elements.entriesDateTo.value = '';
+  elements.entriesSort.value = 'newest';
+  activeEntriesPath = 'all';
+  entriesResultsLimit = ENTRY_PAGE_SIZE;
+  renderEntries();
+  elements.entriesSearchInput.focus();
 }
 
 function renderDays() {
-  const allKeys = dayKeys();
-  const keys = allKeys.slice(0, daysLimit);
+  const keys = archiveDayKeys(activeArchiveMonth);
+  const activityMonths = archiveActivityMonths();
+  const earliestMonth = activityMonths.at(-1) || dateKey().slice(0, 7);
+  const currentMonth = dateKey().slice(0, 7);
+  const entryCount = keys.reduce((sum, key) => sum + entriesForDate(key).length, 0);
+
+  elements.archiveMonthLabel.textContent = formatMonthLabel(activeArchiveMonth);
+  elements.archiveMonthNumeric.textContent = formatMonthNumeric(activeArchiveMonth);
+  elements.archiveMonthInput.value = activeArchiveMonth;
+  elements.archiveMonthInput.min = earliestMonth;
+  elements.archiveMonthInput.max = currentMonth;
+  elements.archivePreviousMonthButton.disabled = activeArchiveMonth <= earliestMonth;
+  elements.archiveNextMonthButton.disabled = activeArchiveMonth >= currentMonth;
+  elements.archiveMonthSummary.textContent = `${savedDayCountLabel(keys.length)} · ${entryCountLabel(entryCount)}`;
+
+  if (!keys.length) {
+    elements.daysList.replaceChildren(emptyNode('لا توجد أيام محفوظة في هذا الشهر.'));
+    elements.selectedDayPanel.hidden = true;
+    return;
+  }
+
+  if (!keys.includes(selectedDay)) {
+    selectedDay = keys[0];
+    selectedDayEditUnlocked = selectedDay === dateKey();
+    selectedDayEntriesLimit = ENTRY_PAGE_SIZE;
+  }
+  elements.selectedDayPanel.hidden = false;
   elements.daysList.replaceChildren(...keys.map(key => createDayButton(key)));
-  elements.loadMoreDaysButton.hidden = allKeys.length <= daysLimit;
   renderSelectedDay();
 }
 
-function dayKeys() {
-  const set = new Set([...dailyRecordsByDate.keys(), ...entriesByDate.keys()]);
-  set.add(dateKey());
-  return [...set].filter(validDateKey).sort((a, b) => b.localeCompare(a));
+function archiveDayKeys(month) {
+  const set = new Set(entriesByDate.keys());
+  dailyRecords.forEach(record => {
+    if (record.direction || record.topEntryIds?.length) set.add(record.date);
+  });
+  return [...set]
+    .filter(key => validDateKey(key) && key.startsWith(`${month}-`))
+    .sort((a, b) => b.localeCompare(a));
+}
+
+function archiveActivityMonths() {
+  const months = new Set([dateKey().slice(0, 7)]);
+  entriesByDate.forEach((_, key) => months.add(key.slice(0, 7)));
+  dailyRecords.forEach(record => {
+    if (record.direction || record.topEntryIds?.length) months.add(record.date.slice(0, 7));
+  });
+  return [...months].filter(validMonthKey).sort((a, b) => b.localeCompare(a));
+}
+
+function setArchiveMonth(month) {
+  const valid = validMonthKey(month);
+  if (!valid || valid > dateKey().slice(0, 7)) return;
+  activeArchiveMonth = valid;
+  const keys = archiveDayKeys(valid);
+  selectedDay = keys[0] || '';
+  selectedDayEditUnlocked = selectedDay === dateKey();
+  selectedDayEntriesLimit = ENTRY_PAGE_SIZE;
+  renderDays();
 }
 
 function createDayButton(key) {
   const count = entriesForDate(key).length;
-  const top = topEntriesFor(key);
   const button = document.createElement('button');
   button.className = `day-button${selectedDay === key ? ' active' : ''}`;
-  const text = document.createElement('span');
-  text.textContent = `${dayName(key)} · ${formatDateKey(key)}`;
+  button.type = 'button';
+  button.setAttribute('aria-label', `${dayName(key)} ${formatDateKey(key)}، ${entryCountLabel(count)}`);
+  const date = document.createElement('strong');
+  date.textContent = pad(dateFromKey(key).getDate());
+  const weekday = document.createElement('span');
+  weekday.className = 'weekday';
+  weekday.textContent = dayName(key);
   const meta = document.createElement('span');
   meta.className = 'count';
-  meta.textContent = `${count} إدخالات · ${top.length}/3`;
-  button.append(text, meta);
+  meta.textContent = entryCountLabel(count);
+  button.append(date, weekday, meta);
   button.addEventListener('click', () => {
     selectedDay = key;
     selectedDayEditUnlocked = key === dateKey();
@@ -765,41 +1108,6 @@ function renderSelectedDay() {
   elements.selectedDayContent.replaceChildren(topWrap, timeline);
 }
 
-function renderSearch() {
-  const query = clampString(elements.searchInput.value, 200);
-  const path = elements.searchPathFilter.value || 'all';
-  const from = elements.dateFrom.value;
-  const to = elements.dateTo.value;
-  const terms = normalizeArabic(query).split(' ').filter(Boolean);
-  const fromTime = from ? dateFromKey(from).getTime() : -Infinity;
-  const toTime = to ? dateFromKey(to).getTime() + DAY - 1 : Infinity;
-
-  const results = entries.filter(entry => {
-    if (entry.status === 'trash') return false;
-    if (path !== 'all' && entry.path !== path) return false;
-    const created = new Date(entry.createdAt).getTime();
-    if (created < fromTime || created > toTime) return false;
-    if (!terms.length) return Boolean(path !== 'all' || from || to);
-    const haystack = normalizeArabic([
-      entry.text,
-      entry.context,
-      entry.person,
-      PATHS[entry.path],
-      STATUSES[entry.status],
-      formatDate(entry.createdAt),
-      entry.dueDate,
-      entry.followUpDate
-    ].filter(Boolean).join(' '));
-    return terms.every(term => haystack.includes(term));
-  });
-
-  elements.searchCount.textContent = String(results.length);
-  elements.searchResultsNote.textContent = query
-    ? `البحث المطبع عن: «${query}»${results.length > 200 ? ' · تظهر أول 200 نتيجة.' : ''}`
-    : 'أدخل نصًا أو استخدم المرشحات.';
-  renderEntryList(elements.searchList, results.slice(0, 200), 'لا توجد نتائج مطابقة.');
-}
-
 function renderEntryList(container, list, emptyMessage) {
   if (!list.length) {
     container.replaceChildren(emptyNode(emptyMessage));
@@ -818,10 +1126,17 @@ function createEntryCard(entry) {
   text.dir = 'auto';
   text.textContent = entry.text || attachmentOnlyLabel(entry);
 
+  const heading = document.createElement('div');
+  heading.className = 'entry-heading';
+  heading.append(createPathMenu(entry), text);
+
   const meta = document.createElement('div');
   meta.className = 'meta';
   meta.append(metaText(cardTimestamp(entry)));
-  meta.append(createPathMenu(entry));
+  const age = chip(`⏳ ${ageDaysLabel(entryAgeDays(entry))}`, 'age-chip');
+  age.title = 'العمر منذ إضافة الالتقاط';
+  age.setAttribute('aria-label', `العمر منذ إضافة الالتقاط: ${ageDaysLabel(entryAgeDays(entry))}`);
+  meta.append(age);
   if (entry.status !== 'open') {
     const statusIcon = entry.status === 'done' ? '✓' : '●';
     meta.append(iconChip(statusIcon, STATUSES[entry.status] || entry.status, `status-${entry.status}`));
@@ -829,16 +1144,13 @@ function createEntryCard(entry) {
   if (entry.dueDate) {
     meta.append(chip(`⏱ ${relativeDayLabel(entry.dueDate)}`, entry.dueDate < dateKey() ? 'overdue' : ''));
   }
-  if (entry.followUpDate) {
-    meta.append(chip(`◷ ${relativeDayLabel(entry.followUpDate)}`, entry.followUpDate < dateKey() ? 'overdue' : ''));
-  }
   if (entry.topTodayDate) meta.append(iconChip('★', 'ضمن أهم المهام', 'top-marker'));
 
   const imageRow = createAttachmentRow(entry.id);
   const actions = document.createElement('div');
   actions.className = 'entry-actions';
   appendEntryActions(actions, entry);
-  article.append(text, meta);
+  article.append(heading, meta);
   if (imageRow) article.append(imageRow);
   article.append(actions);
   return article;
@@ -871,7 +1183,11 @@ function createPathMenu(entry) {
   const summary = document.createElement('summary');
   summary.className = `chip path-${entry.path}`;
   const currentLabel = PATHS[entry.path] || entry.path;
-  summary.textContent = PATH_ICONS[entry.path] || '◇';
+  const currentIcon = document.createElement('span');
+  currentIcon.className = 'path-menu-icon';
+  currentIcon.textContent = PATH_ICONS[entry.path] || '◇';
+  currentIcon.setAttribute('aria-hidden', 'true');
+  summary.append(currentIcon);
   summary.title = currentLabel;
   summary.setAttribute('aria-label', `تغيير المسار الحالي: ${currentLabel}`);
 
@@ -883,7 +1199,13 @@ function createPathMenu(entry) {
       const button = document.createElement('button');
       button.type = 'button';
       button.className = 'path-menu-option';
-      button.textContent = `${PATH_ICONS[path]} ${label}`;
+      const optionIcon = document.createElement('span');
+      optionIcon.className = 'path-option-icon';
+      optionIcon.textContent = PATH_ICONS[path];
+      optionIcon.setAttribute('aria-hidden', 'true');
+      const optionLabel = document.createElement('span');
+      optionLabel.textContent = label;
+      button.append(optionIcon, optionLabel);
       button.addEventListener('click', async event => {
         event.stopPropagation();
         details.open = false;
@@ -1035,11 +1357,19 @@ async function createEntry(data, imageDrafts = []) {
     blob: item.blob,
     createdAt: item.createdAt || now
   }));
-  await putRecord('entries', entry);
-  await putMany('attachments', attachmentRows);
-  entries = [entry, ...entries.filter(item => item.id !== entry.id)];
-  rebuildDataIndexes();
-  if (entry.topTodayDate) await syncDailyTop(entry.topTodayDate);
+  const nextEntries = [entry, ...entries.filter(item => item.id !== entry.id)];
+  const dailyRecord = entry.topTodayDate
+    ? dailyTopRecordForEntries(entry.topTodayDate, nextEntries, now)
+    : null;
+  await runAtomicWrite(
+    ['entries', 'attachments', ...(dailyRecord ? ['daily'] : [])],
+    (stores, track) => {
+      track(stores.entries.put(entry));
+      attachmentRows.forEach(attachment => track(stores.attachments.put(attachment)));
+      if (dailyRecord) track(stores.daily.put(dailyRecord));
+    }
+  );
+  entries = nextEntries;
   await refreshData();
   return entry;
 }
@@ -1052,9 +1382,17 @@ async function updateEntry(id, patch) {
     showToast('لا يمكن إضافة مهمة رابعة إلى أهم اليوم.');
     return null;
   }
+  const updated = buildUpdatedEntry(current, patch);
+  await persistEntryUpdate(current, updated);
+  await refreshData();
+  return updated;
+}
+
+function buildUpdatedEntry(current, patch) {
   const now = nowIso();
   const status = patch.status ? validStatus(patch.status) : current.status;
-  const updated = {
+  const nextTopDate = patch.topTodayDate === undefined ? current.topTodayDate : validDateKey(patch.topTodayDate);
+  return {
     ...current,
     ...patch,
     type: patch.type ? validType(patch.type) : current.type,
@@ -1070,27 +1408,35 @@ async function updateEntry(id, patch) {
     deletedAt: status === 'trash' ? (current.deletedAt || now) : null,
     updatedAt: now
   };
-  await putRecord('entries', updated);
-  entries = entries.map(entry => entry.id === id ? updated : entry);
-  rebuildDataIndexes();
+}
+
+async function persistEntryUpdate(current, updated, { addedAttachments = [], removedAttachmentIds = [] } = {}) {
+  const nextEntries = entries.map(entry => entry.id === current.id ? updated : entry);
   const datesToSync = [current.topTodayDate, updated.topTodayDate].filter(Boolean);
-  for (const day of [...new Set(datesToSync)]) await syncDailyTop(day);
-  await refreshData();
-  return updated;
+  const dailyUpdates = [...new Set(datesToSync)]
+    .map(day => dailyTopRecordForEntries(day, nextEntries, updated.updatedAt));
+  const needsAttachments = addedAttachments.length > 0 || removedAttachmentIds.length > 0;
+  const storeNames = ['entries', ...(dailyUpdates.length ? ['daily'] : []), ...(needsAttachments ? ['attachments'] : [])];
+  await runAtomicWrite(storeNames, (stores, track) => {
+    track(stores.entries.put(updated));
+    dailyUpdates.forEach(record => track(stores.daily.put(record)));
+    removedAttachmentIds.forEach(id => track(stores.attachments.delete(id)));
+    addedAttachments.forEach(attachment => track(stores.attachments.put(attachment)));
+  });
+  entries = nextEntries;
 }
 
 async function setEntryStatus(id, status) {
   await updateEntry(id, { status });
 }
 
-async function setTopToday(id, day, previousDay = null) {
+async function setTopToday(id, day) {
   const entry = entries.find(item => item.id === id);
   if (!entry) return;
   const patch = { topTodayDate: day };
   if (day && entry.path === 'untriaged') patch.path = 'do';
   if (day && entry.type !== 'task') patch.type = 'task';
   await updateEntry(id, patch);
-  if (previousDay) await syncDailyTop(previousDay);
 }
 
 async function trashEntry(id) {
@@ -1110,31 +1456,43 @@ async function addQuickTopTask() {
     showToast('أزل أو استبدل مهمة قبل إضافة الرابعة.');
     return;
   }
-  await createEntry({
-    text,
-    type: 'task',
-    path: 'do',
-    status: 'open',
-    topTodayDate: today
-  });
+  try {
+    await createEntry({
+      text,
+      type: 'task',
+      path: 'do',
+      status: 'open',
+      topTodayDate: today
+    });
+  } catch (error) {
+    reportStorageFailure(error, 'حفظ المهمة');
+    return;
+  }
   elements.quickTaskInput.value = '';
 }
 
 async function saveDailyDirection(day, value, statusElement) {
   const current = dailyRecordFor(day);
   const now = nowIso();
-  await putRecord('daily', {
-    date: day,
-    direction: clampString(value, MAX_DIRECTION_LENGTH),
-    topEntryIds: topEntriesFor(day).map(entry => entry.id),
-    createdAt: current?.createdAt || now,
-    updatedAt: now
-  });
-  if (statusElement) {
-    statusElement.textContent = 'تم الحفظ.';
-    setTimeout(() => { statusElement.textContent = 'يحفظ تلقائيًا.'; }, 1500);
+  try {
+    await putRecord('daily', {
+      date: day,
+      direction: clampString(value, MAX_DIRECTION_LENGTH),
+      topEntryIds: topEntriesFor(day).map(entry => entry.id),
+      createdAt: current?.createdAt || now,
+      updatedAt: now
+    });
+    if (statusElement) {
+      statusElement.textContent = 'تم الحفظ.';
+      setTimeout(() => { statusElement.textContent = 'يحفظ تلقائيًا.'; }, 1500);
+    }
+    await refreshData();
+    return true;
+  } catch (error) {
+    if (statusElement) statusElement.textContent = 'تعذر الحفظ؛ بقي النص السابق محفوظًا.';
+    reportStorageFailure(error, 'حفظ توجّه اليوم');
+    return false;
   }
-  await refreshData();
 }
 
 function openDirectionDialog() {
@@ -1145,7 +1503,7 @@ function openDirectionDialog() {
 
 async function handleDirectionSubmit(event) {
   event.preventDefault();
-  await saveDailyDirection(dateKey(), elements.directionEditor.value);
+  if (!await saveDailyDirection(dateKey(), elements.directionEditor.value)) return;
   elements.directionDialog.close();
   showToast('تم حفظ توجّه اليوم.');
 }
@@ -1173,17 +1531,23 @@ function resetCaptureForm() {
 
 async function handleCaptureSubmit(event) {
   event.preventDefault();
-  const entry = await createEntry({
-    text: elements.captureText.value,
-    type: 'note',
-    path: 'untriaged',
-    status: 'open',
-    context: '',
-    person: '',
-    dueDate: null,
-    followUpDate: null,
-    topTodayDate: null
-  }, captureDraftImages);
+  let entry;
+  try {
+    entry = await createEntry({
+      text: elements.captureText.value,
+      type: 'note',
+      path: 'consider',
+      status: 'open',
+      context: '',
+      person: '',
+      dueDate: null,
+      followUpDate: null,
+      topTodayDate: null
+    }, captureDraftImages);
+  } catch (error) {
+    reportStorageFailure(error, 'حفظ الالتقاط');
+    return;
+  }
   if (!entry) return;
   elements.captureDialog.close();
   showToast('تم الحفظ.', 'تراجع', async () => {
@@ -1193,8 +1557,20 @@ async function handleCaptureSubmit(event) {
 }
 
 async function deleteEntryCompletely(entryId) {
-  await Promise.all(attachmentsFor(entryId).map(item => deleteRecord('attachments', item.id)));
-  await deleteRecord('entries', entryId);
+  const current = entries.find(entry => entry.id === entryId);
+  const nextEntries = entries.filter(entry => entry.id !== entryId);
+  const dailyRecord = current?.topTodayDate
+    ? dailyTopRecordForEntries(current.topTodayDate, nextEntries)
+    : null;
+  await runAtomicWrite(
+    ['entries', 'attachments', ...(dailyRecord ? ['daily'] : [])],
+    (stores, track) => {
+      attachmentsFor(entryId).forEach(item => track(stores.attachments.delete(item.id)));
+      track(stores.entries.delete(entryId));
+      if (dailyRecord) track(stores.daily.put(dailyRecord));
+    }
+  );
+  entries = nextEntries;
 }
 
 async function handleImageFiles(fileList, target) {
@@ -1319,8 +1695,9 @@ function openEditDialog(entryId) {
   elements.editText.value = entry.text || '';
   elements.editPath.value = hasOwn(ROUTABLE_PATHS, entry.path) ? entry.path : 'consider';
   elements.editDueDate.value = entry.dueDate || '';
-  elements.editFollowUpDate.value = entry.followUpDate || '';
+  elements.editEntryAge.querySelector('strong').textContent = ageDaysLabel(entryAgeDays(entry));
   elements.editTopToday.checked = entry.topTodayDate === dateKey();
+  elements.editImagesOptions.open = !entry.text && attachmentsFor(entry.id).length > 0;
   renderExistingEditImages(entry.id);
   renderImagePreview(elements.editNewPreview, editNewImages, removeEditNewImage);
   elements.editDialog.showModal();
@@ -1367,17 +1744,18 @@ async function handleEditSubmit(event) {
   const topTodayDate = elements.editTopToday.checked
     ? today
     : (current.topTodayDate === today ? null : current.topTodayDate);
-  const updated = await updateEntry(id, {
+  if (topTodayDate && topTodayDate !== current.topTodayDate && !canAddTop(topTodayDate, id)) {
+    showToast('لا يمكن إضافة مهمة رابعة إلى أهم اليوم.');
+    return;
+  }
+  const updated = buildUpdatedEntry(current, {
     text,
     path: elements.editPath.value,
     dueDate: elements.editDueDate.value,
-    followUpDate: elements.editFollowUpDate.value,
     topTodayDate
   });
-  if (!updated) return;
-  await Promise.all([...editRemovedAttachmentIds].map(attachmentId => deleteRecord('attachments', attachmentId)));
   const now = nowIso();
-  await putMany('attachments', editNewImages.map(item => ({
+  const addedAttachments = editNewImages.map(item => ({
     id: uid('attachment'),
     entryId: id,
     name: clampString(item.name, 160) || 'image.jpg',
@@ -1385,9 +1763,18 @@ async function handleEditSubmit(event) {
     size: item.size || item.blob?.size || 0,
     blob: item.blob,
     createdAt: now
-  })));
+  }));
+  try {
+    await persistEntryUpdate(current, updated, {
+      addedAttachments,
+      removedAttachmentIds: [...editRemovedAttachmentIds]
+    });
+    await refreshData();
+  } catch (error) {
+    reportStorageFailure(error, 'حفظ التعديل');
+    return;
+  }
   elements.editDialog.close();
-  await refreshData();
   showToast('تم حفظ التعديل.');
 }
 
@@ -1412,10 +1799,6 @@ function renderSettingsState() {
     : 'لا توجد عناصر محذوفة.';
   elements.restoreTrashButton.disabled = !trash.length;
   elements.emptyTrashButton.disabled = !trash.length;
-  const side = settingsMap.get('captureSide') || 'right';
-  elements.captureSideSelect.value = side;
-  elements.captureFab.classList.toggle('left', side !== 'right');
-  elements.captureFab.classList.toggle('right', side === 'right');
 }
 
 async function restoreTrash() {
@@ -1454,7 +1837,7 @@ async function checkPersistence() {
     elements.storageStatus.textContent = persisted
       ? `التخزين الدائم مفعّل${usage ? ` · ${usage} من ${quota} · المتاح ${available}` : ''}.`
       : `التخزين محلي لكنه غير مضمون ضد الإخلاء${usage ? ` · ${usage} من ${quota} · المتاح ${available}` : ''}.`;
-    elements.storageMeter.hidden = !hasEstimate;
+    elements.storageMeter.hidden = !hasEstimate || usageBytes <= 0;
     elements.storageMeterFill.style.width = `${percent}%`;
     elements.storageMeter.classList.toggle('warning', percent >= 80);
     elements.storageMeter.setAttribute('aria-valuenow', String(Math.round(percent)));
@@ -1465,11 +1848,47 @@ async function checkPersistence() {
   }
 }
 
-async function requestPersistence() {
-  if (!navigator.storage?.persist) return;
-  const granted = await navigator.storage.persist();
+async function requestPersistence(options = {}) {
+  const silent = options?.silent === true;
+  if (!navigator.storage?.persist) {
+    if (!silent) showToast('المتصفح لا يوفر طلب التخزين الدائم.');
+    return false;
+  }
+  let granted = false;
+  try {
+    granted = await navigator.storage.persist();
+  } catch (error) {
+    console.warn('تعذر طلب التخزين الدائم:', error);
+  }
   await checkPersistence();
-  showToast(granted ? 'تم تفعيل التخزين الدائم.' : 'لم يمنح المتصفح التخزين الدائم؛ استمر بالنسخ الاحتياطي.');
+  if (!silent) {
+    showToast(granted ? 'تم تفعيل التخزين الدائم.' : 'لم يمنح المتصفح التخزين الدائم؛ استمر بالنسخ الاحتياطي.');
+  }
+  return granted;
+}
+
+async function attemptAutomaticPersistence() {
+  if (!navigator.storage?.persisted || !navigator.storage?.persist) {
+    await checkPersistence();
+    return;
+  }
+  try {
+    if (await navigator.storage.persisted()) {
+      await checkPersistence();
+      return;
+    }
+    const lastAttemptAt = await getSetting('lastPersistenceAutoAttemptAt');
+    if (lastAttemptAt && validIso(lastAttemptAt)
+        && Date.now() - new Date(lastAttemptAt).getTime() < PERSISTENCE_RETRY_DAYS * DAY) {
+      await checkPersistence();
+      return;
+    }
+    await requestPersistence({ silent: true });
+    await putSetting('lastPersistenceAutoAttemptAt', nowIso());
+  } catch (error) {
+    console.warn('تعذرت محاولة حماية التخزين تلقائيًا:', error);
+    await checkPersistence();
+  }
 }
 
 function formatBytes(bytes) {
@@ -1495,20 +1914,67 @@ async function updateBackupStatus() {
       ? `آخر نسخة JSON قبل ${ageDays} أيام؛ يُنصح بالتصدير الآن.`
       : `آخر نسخة JSON: ${formatDate(lastExportAt)} · ${formatTime(lastExportAt)}.`;
   }
-  elements.settingsButton.classList.toggle('backup-due', due);
-  elements.settingsButton.setAttribute('aria-label', due ? 'الإعدادات، النسخ الاحتياطي مستحق' : 'الإعدادات');
-  elements.settingsButton.title = due ? 'الإعدادات · النسخ الاحتياطي مستحق' : 'الإعدادات';
+  backupExportDue = due;
+  updateSettingsSafetyBadge();
   return due;
+}
+
+function updateSettingsSafetyBadge() {
+  const due = backupExportDue || backupVerificationDue;
+  elements.settingsButton.classList.toggle('backup-due', due);
+  const label = backupExportDue
+    ? 'الإعدادات، النسخ الاحتياطي مستحق'
+    : backupVerificationDue
+      ? 'الإعدادات، فحص النسخة الاحتياطية مستحق'
+      : 'الإعدادات';
+  elements.settingsButton.setAttribute('aria-label', label);
+  elements.settingsButton.title = label.replace('،', ' ·');
+}
+
+async function updateBackupVerificationStatus() {
+  const lastVerifiedAt = await getSetting('lastBackupVerifiedAt');
+  const summary = await getSetting('lastBackupVerifiedSummary', {});
+  const verifiedAt = validIso(lastVerifiedAt);
+  const hasSha256Verification = summary?.integrity === 'SHA-256';
+  backupVerificationDue = false;
+  if (!verifiedAt || !hasSha256Verification) {
+    elements.backupVerificationStatus.textContent = verifiedAt
+      ? 'الفحص السابق كان بنيوياً فقط. افحص نسخة v2 حديثة للتحقق من الصور ببصمات SHA-256.'
+      : 'لم تُفحص نسخة حديثة ببصمات SHA-256 بعد. الفحص لا يدمج أو يغيّر إدخالاتك.';
+    backupVerificationDue = entries.length > 0 || dailyRecords.some(record => record.direction);
+  } else {
+    const ageDays = Math.floor((Date.now() - new Date(verifiedAt).getTime()) / DAY);
+    backupVerificationDue = ageDays >= BACKUP_VERIFICATION_REMINDER_DAYS;
+    const counts = Number.isInteger(summary?.entries)
+      ? ` · الإدخالات: ${summary.entries} · الصور: ${Number(summary.attachments || 0)}`
+      : '';
+    elements.backupVerificationStatus.textContent = backupVerificationDue
+      ? `آخر فحص قبل ${ageDays} يومًا؛ حان فحص نسخة حديثة.`
+      : `آخر فحص SHA-256: ${formatDate(verifiedAt)} · ${formatTime(verifiedAt)}${counts}.`;
+  }
+  updateSettingsSafetyBadge();
+  return backupVerificationDue;
 }
 
 async function maybeRemindBackup() {
   const hasUserData = entries.length > 0 || dailyRecords.some(record => record.direction);
-  if (!hasUserData || !await updateBackupStatus()) return;
+  if (!hasUserData || !await updateBackupStatus()) return false;
   const lastReminderAt = await getSetting('lastBackupReminderAt');
   if (lastReminderAt && validIso(lastReminderAt)
-      && Date.now() - new Date(lastReminderAt).getTime() < DAY) return;
+      && Date.now() - new Date(lastReminderAt).getTime() < DAY) return true;
   await putSetting('lastBackupReminderAt', nowIso());
   showToast('حان إنشاء نسخة احتياطية مؤكدة.', 'نسخ الآن', openSettingsDialog, 9000);
+  return true;
+}
+
+async function maybeRemindBackupVerification() {
+  const hasUserData = entries.length > 0 || dailyRecords.some(record => record.direction);
+  if (!hasUserData || !await updateBackupVerificationStatus()) return;
+  const lastReminderAt = await getSetting('lastBackupVerificationReminderAt');
+  if (lastReminderAt && validIso(lastReminderAt)
+      && Date.now() - new Date(lastReminderAt).getTime() < BACKUP_REMINDER_DAYS * DAY) return;
+  await putSetting('lastBackupVerificationReminderAt', nowIso());
+  showToast('حان فحص نسخة احتياطية حديثة.', 'فحص الآن', openSettingsDialog, 9000);
 }
 
 function updateIcloudStatus() {
@@ -1547,14 +2013,15 @@ async function buildBackupFiles(stamp) {
   const total = groups.length;
   const exportedAt = nowIso();
   const backupId = uid('backup');
-  const files = [];
+  const partDescriptors = [];
+
   for (let index = 0; index < total; index += 1) {
     const attachmentRows = [];
     for (const attachment of groups[index]) {
-      attachmentRows.push(await attachmentToExport(attachment));
+      attachmentRows.push(await attachmentExportMetadata(attachment));
     }
     const payload = {
-      schemaVersion: 1,
+      schemaVersion: BACKUP_SCHEMA_VERSION,
       app: 'Mersah Daily',
       exportedAt,
       backupId,
@@ -1563,6 +2030,41 @@ async function buildBackupFiles(stamp) {
       attachments: attachmentRows,
       daily: index === 0 ? dailyRecords : [],
       settings: index === 0 ? settings : []
+    };
+    partDescriptors.push({
+      group: groups[index],
+      payload,
+      partSha256: await sha256Text(canonicalJson(backupPartIntegrityProjection(payload)))
+    });
+  }
+
+  const bundleSha256 = await sha256Text(canonicalJson({
+    schemaVersion: BACKUP_SCHEMA_VERSION,
+    backupId,
+    exportedAt,
+    parts: partDescriptors.map((descriptor, index) => ({
+      index: index + 1,
+      sha256: descriptor.partSha256
+    }))
+  }));
+  const files = [];
+  for (let index = 0; index < partDescriptors.length; index += 1) {
+    const descriptor = partDescriptors[index];
+    const attachmentRows = [];
+    for (let attachmentIndex = 0; attachmentIndex < descriptor.group.length; attachmentIndex += 1) {
+      attachmentRows.push(await attachmentToExport(
+        descriptor.group[attachmentIndex],
+        descriptor.payload.attachments[attachmentIndex]
+      ));
+    }
+    const payload = {
+      ...descriptor.payload,
+      attachments: attachmentRows,
+      integrity: {
+        algorithm: 'SHA-256',
+        partSha256: descriptor.partSha256,
+        bundleSha256
+      }
     };
     const suffix = total > 1 ? `-part-${String(index + 1).padStart(2, '0')}-of-${String(total).padStart(2, '0')}` : '';
     files.push(new File(
@@ -1574,16 +2076,21 @@ async function buildBackupFiles(stamp) {
   return files;
 }
 
-async function attachmentToExport(attachment) {
+async function attachmentExportMetadata(attachment) {
+  if (!(attachment?.blob instanceof Blob)) throw new Error('تعذر قراءة إحدى الصور للتصدير.');
   return {
     id: attachment.id,
     entryId: attachment.entryId,
     name: attachment.name,
     type: attachment.type,
-    size: attachment.size,
+    size: attachment.blob.size,
     createdAt: attachment.createdAt,
-    data: await blobToBase64(attachment.blob)
+    sha256: await sha256Blob(attachment.blob)
   };
+}
+
+async function attachmentToExport(attachment, metadata) {
+  return { ...metadata, data: await blobToBase64(attachment.blob) };
 }
 
 function blobToBase64(blob) {
@@ -1600,6 +2107,46 @@ function base64ToBlob(data, type) {
   const bytes = new Uint8Array(binary.length);
   for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i);
   return new Blob([bytes], { type: type || 'application/octet-stream' });
+}
+
+function canonicalJson(value) {
+  if (Array.isArray(value)) {
+    return `[${value.map(item => canonicalJson(item === undefined ? null : item)).join(',')}]`;
+  }
+  if (value && typeof value === 'object') {
+    const pairs = Object.keys(value)
+      .filter(key => value[key] !== undefined)
+      .sort()
+      .map(key => `${JSON.stringify(key)}:${canonicalJson(value[key])}`);
+    return `{${pairs.join(',')}}`;
+  }
+  const encoded = JSON.stringify(value);
+  return encoded === undefined ? 'null' : encoded;
+}
+
+function backupPartIntegrityProjection(payload) {
+  const projection = { ...payload };
+  delete projection.integrity;
+  projection.attachments = (Array.isArray(payload.attachments) ? payload.attachments : []).map(item => {
+    const metadata = { ...item };
+    delete metadata.data;
+    return metadata;
+  });
+  return projection;
+}
+
+async function sha256Blob(blob) {
+  if (!crypto?.subtle) throw new Error('حساب بصمة النسخة يتطلب فتح مرساة عبر HTTPS أو localhost.');
+  const digest = await crypto.subtle.digest('SHA-256', await blob.arrayBuffer());
+  return [...new Uint8Array(digest)].map(byte => byte.toString(16).padStart(2, '0')).join('');
+}
+
+async function sha256Text(value) {
+  return sha256Blob(new Blob([value], { type: 'text/plain;charset=utf-8' }));
+}
+
+function validSha256(value) {
+  return typeof value === 'string' && /^[a-f0-9]{64}$/i.test(value);
 }
 
 async function exportJson() {
@@ -1747,46 +2294,117 @@ function wait(ms) {
 async function importJsonFiles(fileList) {
   const files = [...(fileList || [])];
   if (!files.length) return;
+  let importCommitted = false;
   try {
-    if (files.some(file => file.size > MAX_IMPORT_BYTES)) {
-      throw new Error(`أحد الملفات يتجاوز ${formatBytes(MAX_IMPORT_BYTES)}.`);
-    }
-    const totalBytes = files.reduce((sum, file) => sum + file.size, 0);
-    if (totalBytes > MAX_IMPORT_TOTAL_BYTES) {
-      throw new Error(`مجموع الملفات يتجاوز ${formatBytes(MAX_IMPORT_TOTAL_BYTES)}.`);
-    }
-    const descriptors = [];
-    for (const file of files) {
-      const data = JSON.parse(await file.text());
-      descriptors.push(inspectImportPayload(file, data));
-    }
-    const ordered = validateImportFileSet(descriptors);
-    const entryCount = ordered.reduce((sum, item) => sum + item.entryCount, 0);
-    const attachmentCount = ordered.reduce((sum, item) => sum + item.attachmentCount, 0);
-    if (entryCount > MAX_IMPORT_ENTRIES) {
-      throw new Error(`النسخة تحتوي ${entryCount} إدخالًا، والحد الآمن ${MAX_IMPORT_ENTRIES}.`);
-    }
-    if (attachmentCount > MAX_IMPORT_ATTACHMENTS) {
-      throw new Error(`النسخة تحتوي ${attachmentCount} مرفقًا، والحد الآمن ${MAX_IMPORT_ATTACHMENTS}.`);
-    }
-    assertImportAttachmentLinks(ordered);
+    const report = await readBackupFileSet(files, true);
+    const { ordered, entryCount, attachmentCount, totalBytes } = report;
     const partsText = ordered.length > 1 ? ` · ${ordered.length} أجزاء مكتملة` : '';
-    if (!confirm(`دمج ${entryCount} إدخالًا و${attachmentCount} مرفقًا (${formatBytes(totalBytes)})${partsText}؟ السجل الأحدث في updatedAt يفوز.`)) return;
-    let importedRecords = 0;
+    const integrityText = report.integrityVerified
+      ? ' تم التحقق من سلامة البايتات ببصمات SHA-256.'
+      : ' هذه نسخة قديمة بلا بصمات؛ اجتازت الفحص البنيوي فقط.';
+    if (!confirm(`دمج ${entryCount} إدخالًا و${attachmentCount} مرفقًا (${formatBytes(totalBytes)})${partsText}؟${integrityText} السجل الأحدث في updatedAt يفوز.`)) return;
+    const importBatch = { entries: [], attachments: [], daily: [], settings: [] };
     for (const descriptor of ordered) {
-      const data = JSON.parse(await descriptor.file.text());
-      const batch = await normalizeImportPayload(data);
-      importedRecords += batch.entries.length + batch.attachments.length + batch.daily.length;
-      await writeImportBatch(batch);
+      const batch = await normalizeImportPayload(descriptor.data, { verifyAttachmentIntegrity: false });
+      for (const storeName of ['entries', 'attachments', 'daily', 'settings']) {
+        for (const value of batch[storeName]) importBatch[storeName].push(value);
+      }
     }
+    const importedRecords = importBatch.entries.length + importBatch.attachments.length + importBatch.daily.length;
+    await writeImportBatch(importBatch);
+    importCommitted = true;
+    await recordBackupVerification(report);
     await refreshData();
     elements.settingsDialog.close();
-    showToast(`اكتمل استيراد ${importedRecords} سجلات.`);
+    showToast(report.integrityVerified
+      ? `اكتمل استيراد ${importedRecords} سجلات بعد تحقق SHA-256.`
+      : `اكتمل استيراد ${importedRecords} سجلات من نسخة قديمة بلا بصمات.`);
   } catch (error) {
-    alert(`تعذر الاستيراد: ${error.message || 'ملف غير صالح'}`);
+    if (importCommitted) {
+      alert('تم استيراد البيانات كاملة، لكن تعذر تحديث حالة الفحص. أعد فتح التطبيق وتحقق من العدد.');
+    } else {
+      alert(isQuotaExceededError(error)
+        ? `${storageFailureMessage(error, 'استيراد النسخة')} لم يُستورد أي سجل.`
+        : `تعذر الاستيراد: ${error.message || 'ملف غير صالح'}`);
+    }
   } finally {
     elements.importInput.value = '';
   }
+}
+
+async function verifyBackupFiles(fileList) {
+  const files = [...(fileList || [])];
+  if (!files.length) return;
+  try {
+    const report = await readBackupFileSet(files, false);
+    for (const descriptor of report.ordered) {
+      await normalizeImportPayload(descriptor.data, { verifyAttachmentIntegrity: false });
+    }
+    await recordBackupVerification(report);
+    const partsText = report.ordered.length > 1 ? ` · ${report.ordered.length} أجزاء` : '';
+    if (report.integrityVerified) {
+      alert(`النسخة سليمة ببصمات SHA-256.\nالإدخالات: ${report.entryCount} · الأيام: ${report.dailyCount} · الصور: ${report.attachmentCount}${partsText}\nتم التحقق من كل صورة ومن الأجزاء والحزمة، ولم تُدمج أو تتغيّر بياناتك.`);
+    } else {
+      alert(`اجتازت النسخة الفحص البنيوي فقط.\nالإدخالات: ${report.entryCount} · الأيام: ${report.dailyCount} · الصور: ${report.attachmentCount}${partsText}\nهذه نسخة قديمة بلا بصمات SHA-256؛ لا يمكن ضمان سلامة بايتات الصور، ولم تُدمج أو تتغيّر بياناتك.`);
+    }
+  } catch (error) {
+    alert(`فشل فحص النسخة: ${error.message || 'ملف غير صالح'}`);
+  } finally {
+    elements.verifyBackupInput.value = '';
+  }
+}
+
+async function readBackupFileSet(files, includeExistingEntries) {
+  if (files.some(file => file.size > MAX_IMPORT_BYTES)) {
+    throw new Error(`أحد الملفات يتجاوز ${formatBytes(MAX_IMPORT_BYTES)}.`);
+  }
+  const totalBytes = files.reduce((sum, file) => sum + file.size, 0);
+  if (totalBytes > MAX_IMPORT_TOTAL_BYTES) {
+    throw new Error(`مجموع الملفات يتجاوز ${formatBytes(MAX_IMPORT_TOTAL_BYTES)}.`);
+  }
+  const descriptors = [];
+  for (const file of files) {
+    const data = JSON.parse(await file.text());
+    descriptors.push({ ...inspectImportPayload(file, data), data });
+  }
+  const ordered = validateImportFileSet(descriptors);
+  const entryCount = ordered.reduce((sum, item) => sum + item.entryCount, 0);
+  const attachmentCount = ordered.reduce((sum, item) => sum + item.attachmentCount, 0);
+  const dailyCount = ordered.reduce((sum, item) => sum + item.dailyCount, 0);
+  if (entryCount > MAX_IMPORT_ENTRIES) {
+    throw new Error(`النسخة تحتوي ${entryCount} إدخالًا، والحد الآمن ${MAX_IMPORT_ENTRIES}.`);
+  }
+  if (attachmentCount > MAX_IMPORT_ATTACHMENTS) {
+    throw new Error(`النسخة تحتوي ${attachmentCount} مرفقًا، والحد الآمن ${MAX_IMPORT_ATTACHMENTS}.`);
+  }
+  const integrityProtected = await verifyImportIntegritySet(ordered);
+  for (const descriptor of ordered) {
+    await validateImportedAttachments(descriptor.data, descriptor.file.name);
+  }
+  assertImportAttachmentLinks(ordered, includeExistingEntries);
+  return {
+    ordered,
+    entryCount,
+    attachmentCount,
+    dailyCount,
+    totalBytes,
+    integrityVerified: integrityProtected
+  };
+}
+
+async function recordBackupVerification(report) {
+  if (!report.integrityVerified) return;
+  const timestamp = nowIso();
+  await putSetting('lastBackupVerifiedAt', timestamp);
+  await putSetting('lastBackupVerifiedSummary', {
+    entries: report.entryCount,
+    attachments: report.attachmentCount,
+    daily: report.dailyCount,
+    parts: report.ordered.length,
+    bytes: report.totalBytes,
+    integrity: 'SHA-256'
+  });
+  await updateBackupVerificationStatus();
 }
 
 function inspectImportPayload(file, data) {
@@ -1796,15 +2414,17 @@ function inspectImportPayload(file, data) {
     return {
       file,
       legacy: true,
+      schemaVersion: 0,
       part: null,
       identity: null,
       entryCount: data.cards.length,
       attachmentCount: 0,
+      dailyCount: 0,
       entryIds: data.cards.map(card => importRecordId(`entry_${card?.id || ''}`)).filter(Boolean),
       attachmentEntryIds: []
     };
   }
-  if (data.schemaVersion && data.schemaVersion !== 1) throw new Error(`${file.name}: إصدار النسخة غير مدعوم.`);
+  const schemaVersion = importedBackupSchemaVersion(data, file.name);
   if (!Array.isArray(data.entries)) throw new Error(`${file.name}: لا توجد entries في النسخة.`);
   const importedAttachments = Array.isArray(data.attachments) ? data.attachments : [];
   const rawPart = data.backupPart;
@@ -1825,10 +2445,12 @@ function inspectImportPayload(file, data) {
   return {
     file,
     legacy: false,
+    schemaVersion,
     part,
     identity: identityValue || null,
     entryCount: data.entries.length,
     attachmentCount: importedAttachments.length,
+    dailyCount: Array.isArray(data.daily) ? data.daily.length : 0,
     entryIds: data.entries.map(entry => importRecordId(entry?.id)).filter(Boolean),
     attachmentEntryIds: importedAttachments.map(item => importRecordId(item?.entryId)).filter(Boolean)
   };
@@ -1860,6 +2482,9 @@ function validateImportFileSet(descriptors) {
     throw new Error('لا تخلط أجزاء نسخة مرقمة مع ملف غير مرقم.');
   }
 
+  const schemaVersions = new Set(descriptors.map(item => item.schemaVersion));
+  if (schemaVersions.size !== 1) throw new Error('أجزاء النسخة تستخدم إصدارات مختلفة ولا يمكن خلطها.');
+
   const identities = new Set(descriptors.map(item => item.identity));
   if (identities.has(null) || identities.size !== 1) {
     throw new Error('الملفات المختارة لا تنتمي إلى نسخة احتياطية واحدة.');
@@ -1882,8 +2507,51 @@ function validateImportFileSet(descriptors) {
   return [...descriptors].sort((a, b) => a.part.index - b.part.index);
 }
 
-function assertImportAttachmentLinks(descriptors) {
-  const knownEntryIds = new Set(entries.map(entry => entry.id));
+function importedBackupSchemaVersion(data, label = 'النسخة') {
+  const value = data.schemaVersion == null ? 1 : Number(data.schemaVersion);
+  if (!Number.isInteger(value) || ![1, BACKUP_SCHEMA_VERSION].includes(value)) {
+    throw new Error(`${label}: إصدار النسخة غير مدعوم.`);
+  }
+  return value;
+}
+
+async function verifyImportIntegritySet(descriptors) {
+  if (!descriptors.length || descriptors[0].legacy || descriptors[0].schemaVersion < 2) return false;
+  const partHashes = [];
+  let expectedBundleSha256 = null;
+  for (const descriptor of descriptors) {
+    const integrity = descriptor.data.integrity;
+    if (integrity?.algorithm !== 'SHA-256'
+        || !validSha256(integrity.partSha256)
+        || !validSha256(integrity.bundleSha256)) {
+      throw new Error(`${descriptor.file.name}: بيانات بصمة SHA-256 ناقصة أو غير صالحة.`);
+    }
+    const actualPartSha256 = await sha256Text(canonicalJson(backupPartIntegrityProjection(descriptor.data)));
+    if (actualPartSha256 !== integrity.partSha256.toLowerCase()) {
+      throw new Error(`${descriptor.file.name}: محتوى الجزء لا يطابق بصمته. قد تكون النسخة تالفة.`);
+    }
+    const bundleSha256 = integrity.bundleSha256.toLowerCase();
+    if (expectedBundleSha256 && bundleSha256 !== expectedBundleSha256) {
+      throw new Error('بصمة الحزمة غير متطابقة بين الأجزاء.');
+    }
+    expectedBundleSha256 = bundleSha256;
+    partHashes.push({ index: descriptor.part?.index || 1, sha256: actualPartSha256 });
+  }
+  const first = descriptors[0].data;
+  const actualBundleSha256 = await sha256Text(canonicalJson({
+    schemaVersion: descriptors[0].schemaVersion,
+    backupId: first.backupId,
+    exportedAt: first.exportedAt,
+    parts: partHashes
+  }));
+  if (actualBundleSha256 !== expectedBundleSha256) {
+    throw new Error('بصمة الحزمة الكاملة غير مطابقة. قد تكون النسخة ناقصة أو تالفة.');
+  }
+  return true;
+}
+
+function assertImportAttachmentLinks(descriptors, includeExistingEntries = true) {
+  const knownEntryIds = new Set(includeExistingEntries ? entries.map(entry => entry.id) : []);
   descriptors.forEach(item => item.entryIds.forEach(id => knownEntryIds.add(id)));
   const orphanCount = descriptors.reduce((count, item) =>
     count + item.attachmentEntryIds.filter(id => !knownEntryIds.has(id)).length, 0);
@@ -1892,21 +2560,33 @@ function assertImportAttachmentLinks(descriptors) {
   }
 }
 
-async function normalizeImportPayload(data) {
+async function normalizeImportPayload(data, { verifyAttachmentIntegrity = true } = {}) {
   if (!data || typeof data !== 'object') throw new Error('ملف النسخة غير صالح.');
   if (Array.isArray(data.cards) && Array.isArray(data.outcomes)) return normalizeV0Import(data.cards);
-  if (data.schemaVersion && data.schemaVersion !== 1) throw new Error('إصدار النسخة غير مدعوم.');
+  const schemaVersion = importedBackupSchemaVersion(data);
   if (!Array.isArray(data.entries)) throw new Error('لا توجد entries في النسخة.');
   if (data.entries.length > MAX_IMPORT_ENTRIES) throw new Error(`النسخة تحتوي أكثر من ${MAX_IMPORT_ENTRIES} إدخالات.`);
   const importedAttachments = Array.isArray(data.attachments) ? data.attachments : [];
   if (importedAttachments.length > MAX_IMPORT_ATTACHMENTS) throw new Error(`النسخة تحتوي أكثر من ${MAX_IMPORT_ATTACHMENTS} مرفقات.`);
+
+  const normalizedAttachments = [];
+  for (let index = 0; index < importedAttachments.length; index += 1) {
+    normalizedAttachments.push(await sanitizeImportedAttachment(importedAttachments[index], {
+      schemaVersion,
+      verifyDigest: verifyAttachmentIntegrity,
+      label: `المرفق ${index + 1}`
+    }));
+  }
+  if (normalizedAttachments.length !== importedAttachments.length) {
+    throw new Error(`عدد المرفقات المقروءة (${normalizedAttachments.length}) لا يطابق العدد المعلن (${importedAttachments.length}).`);
+  }
 
   const existingEntries = new Map(entries.map(entry => [entry.id, entry]));
   const existingDaily = new Map(dailyRecords.map(record => [record.date, record]));
   const existingSettings = new Map(settings.map(setting => [setting.key, setting]));
   const batch = {
     entries: data.entries.map(sanitizeImportedEntry).filter(entry => shouldImport(entry, existingEntries.get(entry.id))),
-    attachments: importedAttachments.map(sanitizeImportedAttachment).filter(Boolean),
+    attachments: normalizedAttachments,
     daily: (Array.isArray(data.daily) ? data.daily : []).map(sanitizeImportedDaily).filter(record => record && shouldImport(record, existingDaily.get(record.date))),
     settings: (Array.isArray(data.settings) ? data.settings : []).map(sanitizeImportedSetting).filter(setting => setting && shouldImport(setting, existingSettings.get(setting.key)))
   };
@@ -1966,15 +2646,54 @@ function sanitizeImportedEntry(entry) {
   };
 }
 
-function sanitizeImportedAttachment(item) {
-  if (!item?.entryId || !item?.data) return null;
-  const blob = base64ToBlob(item.data, item.type);
+async function validateImportedAttachments(data, fileName) {
+  if (Array.isArray(data.cards) && Array.isArray(data.outcomes)) return;
+  const schemaVersion = importedBackupSchemaVersion(data, fileName);
+  const importedAttachments = Array.isArray(data.attachments) ? data.attachments : [];
+  let validCount = 0;
+  for (let index = 0; index < importedAttachments.length; index += 1) {
+    await sanitizeImportedAttachment(importedAttachments[index], {
+      schemaVersion,
+      verifyDigest: true,
+      label: `${fileName}: المرفق ${index + 1}`
+    });
+    validCount += 1;
+  }
+  if (validCount !== importedAttachments.length) {
+    throw new Error(`${fileName}: عدد المرفقات المقروءة (${validCount}) لا يطابق العدد المعلن (${importedAttachments.length}).`);
+  }
+}
+
+async function sanitizeImportedAttachment(item, { schemaVersion = 1, verifyDigest = true, label = 'المرفق' } = {}) {
+  if (!item || typeof item !== 'object') throw new Error(`${label}: سجل المرفق غير صالح.`);
+  if (!clampString(item.id, MAX_ID_LENGTH)) throw new Error(`${label}: معرّف المرفق مفقود.`);
+  if (!clampString(item.entryId, MAX_ID_LENGTH)) throw new Error(`${label}: الإدخال المرتبط مفقود.`);
+  if (typeof item.data !== 'string' || !item.data.length) throw new Error(`${label}: بيانات الصورة مفقودة.`);
+  let blob;
+  try {
+    blob = base64ToBlob(item.data, item.type);
+  } catch (error) {
+    throw new Error(`${label}: بيانات الصورة Base64 غير صالحة.`);
+  }
+  const declaredSize = Number(item.size);
+  if (item.size != null && (!Number.isSafeInteger(declaredSize) || declaredSize < 0 || declaredSize !== blob.size)) {
+    throw new Error(`${label}: حجم الصورة لا يطابق الحجم المعلن.`);
+  }
+  if (schemaVersion >= 2) {
+    if (!validSha256(item.sha256)) throw new Error(`${label}: بصمة SHA-256 مفقودة أو غير صالحة.`);
+    if (verifyDigest) {
+      const actualSha256 = await sha256Blob(blob);
+      if (actualSha256 !== item.sha256.toLowerCase()) {
+        throw new Error(`${label}: بايتات الصورة لا تطابق بصمتها. قد تكون الصورة تالفة.`);
+      }
+    }
+  }
   return {
     id: safeId(item.id, 'attachment'),
     entryId: safeId(item.entryId, 'entry'),
     name: clampString(item.name, 160) || 'image.jpg',
     type: clampString(item.type, 80) || 'image/jpeg',
-    size: Number(item.size || blob.size || 0),
+    size: blob.size,
     blob,
     createdAt: validIso(item.createdAt) || nowIso()
   };
@@ -2074,6 +2793,7 @@ function setMigrationStatus(dbName, state) {
 
 async function runLegacyMigration(dbName = null) {
   const name = dbName || await getSetting('legacyMigrationDbName') || LEGACY_DB_NAME;
+  let migrationCommitted = false;
   try {
     const legacyCards = await readLegacyCards(name);
     const batch = normalizeV0Import(legacyCards);
@@ -2085,12 +2805,19 @@ async function runLegacyMigration(dbName = null) {
     }
     if (!confirm(`استيراد ${batch.entries.length} عناصر من v0؟`)) return;
     await writeImportBatch(batch);
+    migrationCommitted = true;
     await putSetting('legacyMigrationChoice', 'imported');
     await refreshData();
     setMigrationStatus(name, 'imported');
     showToast('اكتملت هجرة v0.');
   } catch (error) {
-    alert(`تعذرت هجرة v0: ${error.message || 'خطأ غير معروف'}`);
+    if (migrationCommitted) {
+      alert('تم استيراد عناصر v0 كاملة، لكن تعذر تسجيل اكتمال الهجرة. تحقق من العدد قبل إعادة المحاولة.');
+    } else {
+      alert(isQuotaExceededError(error)
+        ? `${storageFailureMessage(error, 'هجرة v0')} لم يُستورد أي سجل.`
+        : `تعذرت هجرة v0: ${error.message || 'خطأ غير معروف'}`);
+    }
   }
 }
 
@@ -2126,13 +2853,20 @@ async function skipMigration() {
 
 function showOnlyView(name) {
   $$('.view').forEach(view => view.classList.toggle('active', view.dataset.view === name));
-  $$('.nav-btn').forEach(button => button.classList.toggle('active', button.dataset.target === name));
+  $$('.nav-btn').forEach(button => {
+    const active = button.dataset.target === name;
+    button.classList.toggle('active', active);
+    if (active) button.setAttribute('aria-current', 'page');
+    else button.removeAttribute('aria-current');
+  });
 }
 
 function switchView(name) {
+  const changed = currentView !== name;
   currentView = name;
   showOnlyView(name);
   renderCurrentView();
+  if (changed) window.scrollTo(0, 0);
 }
 
 function showToast(message, actionLabel = '', action = null, duration = 3500) {
@@ -2157,10 +2891,15 @@ async function openSettingsDialog() {
   elements.settingsButton.classList.add('active');
   if (!elements.settingsDialog.open) elements.settingsDialog.showModal();
   updateIcloudStatus();
-  await Promise.all([checkPersistence(), updateBackupStatus()]);
+  await Promise.all([checkPersistence(), updateBackupStatus(), updateBackupVerificationStatus()]);
 }
 
 function bindEvents() {
+  window.addEventListener('unhandledrejection', event => {
+    if (!isQuotaExceededError(event.reason)) return;
+    event.preventDefault();
+    reportStorageFailure(event.reason);
+  });
   elements.settingsButton.addEventListener('click', openSettingsDialog);
   elements.settingsDialog.addEventListener('close', () => elements.settingsButton.classList.remove('active'));
   $$('.nav-btn[data-target]').forEach(button => button.addEventListener('click', () => switchView(button.dataset.target)));
@@ -2186,35 +2925,36 @@ function bindEvents() {
   elements.loadMoreTodayButton.addEventListener('click', () => {
     todayEntriesLimit += ENTRY_PAGE_SIZE;
     renderTodayTimeline(dateKey());
-    scheduleCaptureVisibilityCheck();
   });
-  elements.pathFilter.addEventListener('change', () => {
-    activePath = elements.pathFilter.value;
-    renderPaths();
+  elements.entriesSearchInput.addEventListener('input', scheduleEntriesSearch);
+  elements.entriesDateFrom.addEventListener('change', () => handleEntriesDateChange('from'));
+  elements.entriesDateTo.addEventListener('change', () => handleEntriesDateChange('to'));
+  elements.entriesSort.addEventListener('change', () => {
+    entriesResultsLimit = ENTRY_PAGE_SIZE;
+    renderEntries();
   });
-  elements.loadMoreDaysButton.addEventListener('click', () => {
-    daysLimit += 30;
-    renderDays();
+  elements.clearEntriesFiltersButton.addEventListener('click', clearEntriesFilters);
+  elements.loadMoreEntriesButton.addEventListener('click', () => {
+    entriesResultsLimit += ENTRY_PAGE_SIZE;
+    renderEntries();
   });
+  elements.archivePreviousMonthButton.addEventListener('click', () => setArchiveMonth(shiftMonthKey(activeArchiveMonth, -1)));
+  elements.archiveNextMonthButton.addEventListener('click', () => setArchiveMonth(shiftMonthKey(activeArchiveMonth, 1)));
+  elements.archiveMonthInput.addEventListener('change', () => setArchiveMonth(elements.archiveMonthInput.value));
   elements.editDayButton.addEventListener('click', () => {
     selectedDayEditUnlocked = true;
     renderSelectedDay();
     elements.selectedDayDirection.focus();
   });
   elements.selectedDayDirection.addEventListener('input', scheduleSelectedDirectionSave);
-  [elements.searchInput, elements.searchPathFilter, elements.dateFrom, elements.dateTo]
-    .forEach(input => input.addEventListener('input', renderSearch));
   elements.editForm.addEventListener('submit', handleEditSubmit);
   elements.editImageInput.addEventListener('change', () => handleImageFiles(elements.editImageInput.files, editNewImages));
   elements.editDeleteButton.addEventListener('click', deleteEditedEntry);
-  elements.captureSideSelect.addEventListener('change', async () => {
-    await putSetting('captureSide', elements.captureSideSelect.value);
-    renderSettingsState();
-  });
   elements.requestPersistenceButton.addEventListener('click', requestPersistence);
   elements.exportJsonButton.addEventListener('click', () => runExport(exportJson, 'لم تُحفظ نسخة JSON.'));
   elements.exportMarkdownButton.addEventListener('click', () => runExport(exportMarkdown, 'لم يُحفظ ملف Markdown.'));
   elements.exportIcloudButton.addEventListener('click', () => runExport(exportIcloudBundle, 'لم تُحفظ حزمة iCloud.'));
+  elements.verifyBackupInput.addEventListener('change', () => verifyBackupFiles(elements.verifyBackupInput.files));
   elements.importInput.addEventListener('change', () => importJsonFiles(elements.importInput.files));
   elements.runMigrationButton.addEventListener('click', () => runLegacyMigration());
   elements.skipMigrationButton.addEventListener('click', skipMigration);
@@ -2228,6 +2968,14 @@ function bindEvents() {
       if (event.target === dialog) dialog.close();
     });
   });
+  document.addEventListener('keydown', event => {
+    if (event.key !== 'Escape' || event.defaultPrevented) return;
+    const openDialogs = $$('dialog[open]');
+    const dialog = openDialogs[openDialogs.length - 1];
+    if (!dialog) return;
+    event.preventDefault();
+    dialog.close();
+  });
   document.addEventListener('click', event => {
     $$('.path-menu[open]').forEach(menu => {
       if (!menu.contains(event.target)) menu.removeAttribute('open');
@@ -2237,11 +2985,6 @@ function bindEvents() {
     attachmentUrlCache.forEach(cached => URL.revokeObjectURL(cached.url));
     attachmentUrlCache.clear();
   });
-  window.addEventListener('scroll', scheduleCaptureVisibilityCheck, { passive: true });
-  window.addEventListener('resize', scheduleCaptureVisibilityCheck);
-  window.addEventListener('load', scheduleCaptureVisibilityCheck);
-  document.addEventListener('toggle', scheduleCaptureVisibilityCheck, true);
-  document.fonts?.ready.then(scheduleCaptureVisibilityCheck);
 }
 
 async function runExport(task, failureMessage) {
@@ -2275,11 +3018,12 @@ async function init() {
   await openDatabase();
   await refreshData();
   await cleanOldTrash();
-  await checkPersistence();
+  await attemptAutomaticPersistence();
   updateIcloudStatus();
   await detectLegacyMigration();
-  await maybeRemindBackup();
+  if (!await maybeRemindBackup()) await maybeRemindBackupVerification();
   await registerServiceWorker();
+  window.setInterval(refreshForNewDay, 60 * 1000);
 }
 
 init().catch(error => {

@@ -6,8 +6,8 @@
   <meta name="referrer" content="no-referrer">
   <meta http-equiv="Permissions-Policy" content="geolocation=(), payment=(), usb=(), bluetooth=(), accelerometer=(), gyroscope=(), magnetometer=()">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <meta name="theme-color" content="#e3e0d8" media="(prefers-color-scheme: light)">
-  <meta name="theme-color" content="#101513" media="(prefers-color-scheme: dark)">
+  <meta name="theme-color" content="#f3f2f2" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#1b1a1a" media="(prefers-color-scheme: dark)">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="مرساة">
@@ -16,96 +16,195 @@
   <link rel="apple-touch-icon" href="./icons/icon-180.png">
   <title>مرساة</title>
   <style>
+    /* ═══════════════════════════════════════════════════════════════
+       مرساة — طبقة Broadsheet
+       الرموز مأخوذة من نظام Broadsheet، مع ثلاثة تصحيحات إلزامية:
+       • لون النص باللهجة يستخدم accent-700 لا accent (3.65:1 يسقط في AA)
+       • الزر الأساسي أبيض على accent-700 (6.39:1) لا bg على accent
+       • النص الباهت 65% لا 55% (55% = 3.66:1 يسقط)
+       الوضع الداكن مشتق من سلالم Broadsheet نفسها.
+       ═══════════════════════════════════════════════════════════════ */
+
+    /* IBM Plex Sans Arabic — مستضاف محليًا (OFL). مجزّأ عربي/لاتيني
+       بصيغة woff2: 96KB بدل 192KB للـTTF الكامل، ويحترم font-src 'self'. */
+    @font-face {
+      font-family: 'IBM Plex Sans Arabic';
+      src: url('./fonts/plex-arabic-arabic-400.woff2') format('woff2');
+      font-weight: 400; font-style: normal; font-display: swap;
+      unicode-range: U+0600-06FF, U+0750-077F, U+0870-088E, U+0890-0891, U+0897-08E1,
+        U+08E3-08FF, U+200C-200E, U+2010-2011, U+204F, U+2E41, U+FB50-FDFF,
+        U+FE70-FE74, U+FE76-FEFC;
+    }
+    @font-face {
+      font-family: 'IBM Plex Sans Arabic';
+      src: url('./fonts/plex-arabic-arabic-600.woff2') format('woff2');
+      font-weight: 600; font-style: normal; font-display: swap;
+      unicode-range: U+0600-06FF, U+0750-077F, U+0870-088E, U+0890-0891, U+0897-08E1,
+        U+08E3-08FF, U+200C-200E, U+2010-2011, U+204F, U+2E41, U+FB50-FDFF,
+        U+FE70-FE74, U+FE76-FEFC;
+    }
+    @font-face {
+      font-family: 'IBM Plex Sans Arabic';
+      src: url('./fonts/plex-arabic-latin-400.woff2') format('woff2');
+      font-weight: 400; font-style: normal; font-display: swap;
+      unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA,
+        U+02DC, U+2000-206F, U+2074, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215;
+    }
+    @font-face {
+      font-family: 'IBM Plex Sans Arabic';
+      src: url('./fonts/plex-arabic-latin-600.woff2') format('woff2');
+      font-weight: 600; font-style: normal; font-display: swap;
+      unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA,
+        U+02DC, U+2000-206F, U+2074, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215;
+    }
+
     :root {
       color-scheme: light dark;
-      --bg: #e3e0d8;
-      --surface: #fffdf8;
-      --surface-2: #ebeee8;
-      --panel: #f9f7f1;
-      --card: #fffefa;
-      --text: #1d2924;
-      --muted: #59635d;
-      --line: #d7dbd2;
-      --hairline: #e5e7df;
-      --accent: #204238;
-      --accent-2: #2f6d61;
-      --accent-soft: #dfece6;
-      --accent-ink: #ffffff;
-      --danger: #8a3e36;
-      --danger-soft: #f4e2de;
-      --warning: #806026;
-      --warning-soft: #f6edda;
-      --chip: #edf0ea;
-      --path-untriaged: #6b746f;
-      --path-do: #2f6d61;
-      --path-consider: #735a91;
-      --path-waiting: #91671d;
-      --path-reference: #426b82;
-      --toast-bg: #1d2924;
-      --toast-text: #fffdf8;
-      --focus: rgba(47, 109, 97, .34);
-      --shadow: 0 8px 24px rgba(31, 41, 35, .08);
-      --shadow-lift: 0 16px 42px rgba(31, 41, 35, .14);
-      --radius: 16px;
+
+      --color-bg: #f3f2f2;
+      --color-surface: #eae9e9;
+      --color-panel: #eae9e9;
+      --color-card: #eae9e9;
+      --color-text: #201e1d;
+      --color-muted: #6a6868;
+      --color-divider: #858181;
+      --color-hairline: color-mix(in srgb, #201e1d 10%, transparent);
+
+      --color-accent: #0088b0;
+      --color-accent-ink: #006786;
+      --color-accent-strong: #004961;
+      --color-accent-soft: #e9f8ff;
+      --color-on-accent: #ffffff;
+
+      --color-accent-2: #d6006c;
+      --color-accent-2-ink: #aa0b56;
+      --color-accent-2-soft: #fff1f4;
+
+      --color-neutral-100: #f8f4f4;
+      --color-neutral-200: #eae7e7;
+      --color-neutral-300: #d7d3d3;
+      --color-neutral-400: #bab6b6;
+      --color-neutral-500: #9b9797;
+      --color-neutral-600: #7d7979;
+      --color-neutral-700: #605d5d;
+      --color-neutral-800: #444141;
+      --color-neutral-900: #2d2b2b;
+
+      --color-danger: #aa0b56;
+      --color-danger-soft: #fff1f4;
+      --color-warning-ink: #605d5d;
+
+      --track-untriaged: #9b9797;
+      --track-do: #38a6cf;
+      --track-consider: #ff458e;
+      --track-waiting: #605d5d;
+      --track-reference: #bab6b6;
+
+      --toast-bg: #2d2b2b;
+      --toast-text: #f3f2f2;
+
+      --font-body: 'IBM Plex Sans Arabic', -apple-system, BlinkMacSystemFont, 'SF Arabic', system-ui, sans-serif;
+      --font-heading: var(--font-body);
+
+      --space-1: 5px;
+      --space-2: 10px;
+      --space-3: 15px;
+      --space-4: 20px;
+      --space-6: 30px;
+
+      --radius-sm: 1px;
+      --radius-md: 2px;
+      --radius-lg: 4px;
+      --radius: var(--radius-md);
+
+      --shadow-sm: 0 1px 2px color-mix(in srgb, #2d2b2b 14%, transparent);
+      --shadow-md: 0 3px 10px color-mix(in srgb, #2d2b2b 16%, transparent);
+      --shadow-lg: 0 12px 32px color-mix(in srgb, #2d2b2b 22%, transparent);
+
+      --focus: var(--color-accent-ink);
       --tap: 44px;
       --safe-bottom: env(safe-area-inset-bottom, 0px);
     }
 
     @media (prefers-color-scheme: dark) {
       :root {
-        --bg: #101513;
-        --surface: #1d2421;
-        --surface-2: #26302c;
-        --panel: #1a211f;
-        --card: #252e2a;
-        --text: #e9ece7;
-        --muted: #aab4af;
-        --line: #333e39;
-        --hairline: #2a3430;
-        --accent: #82d2bd;
-        --accent-2: #9be0cf;
-        --accent-soft: #21332e;
-        --accent-ink: #101614;
-        --danger: #f0a79c;
-        --danger-soft: #3a2723;
-        --warning: #e4c477;
-        --warning-soft: #332b1c;
-        --chip: #27312d;
-        --path-untriaged: #aab4af;
-        --path-do: #82d2bd;
-        --path-consider: #c4a7e7;
-        --path-waiting: #e4c477;
-        --path-reference: #91c7e3;
-        --toast-bg: #e9ece7;
-        --toast-text: #141a18;
-        --focus: rgba(130, 210, 189, .36);
-        --shadow: 0 8px 24px rgba(0, 0, 0, .34);
-        --shadow-lift: 0 18px 46px rgba(0, 0, 0, .44);
+        --color-bg: #1b1a1a;
+        --color-surface: #2d2b2b;
+        --color-panel: #232222;
+        --color-card: #2d2b2b;
+        --color-text: #f8f4f4;
+        --color-muted: #aba8a8;
+        --color-divider: #777373;
+        --color-hairline: color-mix(in srgb, #f8f4f4 12%, transparent);
+
+        --color-accent: #62c5ee;
+        --color-accent-ink: #99e0ff;
+        --color-accent-strong: #cbeeff;
+        --color-accent-soft: #004961;
+        --color-on-accent: #0a303e;
+
+        --color-accent-2: #ff90b1;
+        --color-accent-2-ink: #ffc0d0;
+        --color-accent-2-soft: #790e3d;
+
+        --color-danger: #ffc0d0;
+        --color-danger-soft: #4b1528;
+        --color-warning-ink: #d7d3d3;
+
+        --track-untriaged: #bab6b6;
+        --track-do: #62c5ee;
+        --track-consider: #ff90b1;
+        --track-waiting: #d7d3d3;
+        --track-reference: #7d7979;
+
+        /* سلّم neutral مقلوب في الداكن: الشرائح والمقياس تستعمله مباشرة،
+           وبقيم الوضع الفاتح كانت تظهر كرقع بيضاء ساطعة. */
+        --color-neutral-100: #353333;
+        --color-neutral-200: #3f3d3d;
+        --color-neutral-300: #4a4747;
+        --color-neutral-800: #e2dede;
+        --color-neutral-900: #f2eeee;
+
+        --toast-bg: #f8f4f4;
+        --toast-text: #1b1a1a;
+
+        --shadow-sm: 0 1px 2px rgba(0,0,0,.5);
+        --shadow-md: 0 3px 10px rgba(0,0,0,.55);
+        --shadow-lg: 0 12px 32px rgba(0,0,0,.6);
+
+        --focus: var(--color-accent-ink);
       }
     }
 
-    * { box-sizing: border-box; }
+    * , *::before, *::after { box-sizing: border-box; }
+    [hidden] { display: none !important; }
 
     html {
       min-height: 100%;
-      background: var(--bg);
+      background: var(--color-bg);
       -webkit-text-size-adjust: 100%;
     }
 
     body {
       margin: 0;
       min-height: 100dvh;
-      background: var(--bg);
-      color: var(--text);
-      font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Arabic",
-                   "Geeza Pro", "Segoe UI", "Noto Naskh Arabic", Tahoma, Arial, sans-serif;
-      font-size: 17px;
-      line-height: 1.6;
+      background: var(--color-bg);
+      color: var(--color-text);
+      font-family: var(--font-body);
+      font-size: 15px;
+      line-height: 1.55;
+      font-weight: 400;
       -webkit-font-smoothing: antialiased;
       text-rendering: optimizeLegibility;
     }
 
-    h1, h2, h3 { letter-spacing: normal; }
+    h1, h2, h3 {
+      font-family: var(--font-heading);
+      font-weight: 600;
+      line-height: 1.2;
+      letter-spacing: normal;
+      margin: 0 0 var(--space-2);
+    }
 
     button, input, textarea, select { font: inherit; color: inherit; }
     button {
@@ -113,626 +212,786 @@
       touch-action: manipulation;
       -webkit-tap-highlight-color: transparent;
     }
-    button:disabled { cursor: default; opacity: .42; }
+    button:disabled { cursor: default; opacity: .45; }
     button:focus-visible, input:focus-visible, textarea:focus-visible,
     select:focus-visible, summary:focus-visible, label:focus-visible {
-      outline: 3px solid var(--focus);
+      outline: 2px solid var(--focus);
       outline-offset: 2px;
     }
+    .skip-link {
+      position: fixed;
+      z-index: 100;
+      inset-block-start: 10px;
+      inset-inline-start: 16px;
+      min-height: var(--tap);
+      display: inline-flex;
+      align-items: center;
+      padding: 8px 14px;
+      border-radius: var(--radius-md);
+      background: var(--color-text);
+      color: var(--color-bg);
+      font-weight: 600;
+      transform: translateY(calc(-100% - 16px));
+    }
+    .skip-link:focus { transform: translateY(0); }
 
     .app-shell {
-      width: min(900px, 100%);
+      width: min(760px, 100%);
       min-height: 100dvh;
       margin-inline: auto;
-      padding: 20px 16px calc(184px + var(--safe-bottom));
+      padding: 18px 18px calc(112px + var(--safe-bottom));
     }
+
+    /* ── الترويسة: كيكر + قاعدة اللهجة ── */
 
     header {
       display: flex;
-      align-items: center;
-      justify-content: flex-start;
-      gap: 12px;
-      margin-bottom: 18px;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: var(--space-2);
+      margin-bottom: var(--space-3);
     }
 
-    .brand { display: flex; align-items: center; gap: 12px; min-width: 0; }
+    .brand { display: flex; align-items: center; gap: 8px; min-width: 0; }
     .brand-mark {
-      width: 42px;
-      height: 42px;
-      flex: none;
-      display: grid;
-      place-items: center;
-      border: 1px solid var(--line);
-      border-radius: 14px;
-      background: var(--surface);
-      color: var(--accent);
-      box-shadow: var(--shadow);
+      width: 20px; height: 20px; flex: none;
+      display: grid; place-items: center;
+      border: 0; background: none; box-shadow: none;
+      color: var(--color-accent-ink);
     }
-    .brand-mark svg { width: 24px; height: 24px; }
-    .brand h1 { margin: 0; font-size: 1.32rem; font-weight: 760; }
-    .brand p { margin: 2px 0 0; color: var(--muted); font-size: .86rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .brand-mark svg { width: 20px; height: 20px; }
+    .brand h1 {
+      margin: 0;
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0;
+      color: var(--color-accent-ink);
+    }
+    .brand p {
+      margin: 0;
+      font-size: 11px;
+      color: var(--color-muted);
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+
+    /* ── العروض ── */
 
     .view { display: none; }
     .view.active { display: block; animation: fade-in .16s ease; }
-    @keyframes fade-in { from { opacity: .42; transform: translateY(3px); } }
+    @keyframes fade-in { from { opacity: .45; transform: translateY(2px); } }
 
-    .stack { display: grid; gap: 14px; }
-    .panel, .card {
-      border: 1px solid var(--line);
-      border-radius: var(--radius);
-      background: var(--surface);
-      box-shadow: var(--shadow);
+    .stack { display: grid; gap: var(--space-3); }
+
+    .panel {
+      padding: 0;
+      border: 0;
+      border-radius: 0;
+      background: none;
+      box-shadow: none;
     }
-    .panel { padding: 16px; }
-    .card { padding: 11px 12px; background: var(--card); }
-    .entry-card { border-inline-start: 4px solid var(--path-color, var(--line)); }
-    .entry-card.path-untriaged { --path-color: var(--path-untriaged); }
-    .entry-card.path-do { --path-color: var(--path-do); }
-    .entry-card.path-consider { --path-color: var(--path-consider); }
-    .entry-card.path-waiting { --path-color: var(--path-waiting); }
-    .entry-card.path-reference { --path-color: var(--path-reference); }
+    .panel + .panel { margin-top: var(--space-6); }
+
+    /* ── بطلة اليوم: قاعدة 3px + مسطرة ── */
 
     .today-hero {
-      display: grid;
-      gap: 8px;
-      padding: 13px 15px;
-      border: 1px solid var(--line);
-      border-radius: 17px;
-      background: var(--surface);
-      box-shadow: var(--shadow);
+      display: block;
+      padding: 0;
+      border: 0;
+      border-top: 3px solid var(--color-accent);
+      border-radius: 0;
+      background: none;
+      box-shadow: none;
+      padding-top: var(--space-2);
     }
+
+    .today-date-line {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: var(--space-2);
+      border-bottom: 1px solid var(--color-divider);
+      padding-bottom: 12px;
+    }
+    .today-date-line span { min-width: 0; }
 
     .today-head, .section-head, .row-between {
       display: flex;
-      align-items: flex-end;
+      align-items: baseline;
       justify-content: space-between;
-      gap: 12px;
+      gap: var(--space-2);
     }
-    .today-head h2, .section-head h2, .section-head h3 { margin: 0; font-size: 1.12rem; font-weight: 760; }
-    .today-head p, .section-head p { margin: 4px 0 0; color: var(--muted); font-size: .86rem; }
-    .today-date-line { display: flex; align-items: baseline; gap: 7px; min-width: 0; }
-    .today-date-line span { color: var(--muted); font-size: .84rem; white-space: nowrap; }
-    .top-progress-dots { display: flex; direction: ltr; align-items: center; gap: 6px; min-height: 20px; }
+    .today-head h2, .section-head h2, .section-head h3 {
+      margin: 0;
+      font-size: 22px;
+      font-weight: 600;
+    }
+    .today-head p, .section-head p {
+      margin: 3px 0 0;
+      font-size: 13px;
+      color: var(--color-muted);
+    }
+
+    #todayLabel { font-size: 30px; font-weight: 600; margin: 0; }
+    #todayDate { font-size: 13px; color: var(--color-muted); white-space: nowrap; }
+
+    .top-progress-dots { display: flex; gap: 6px; flex: none; }
     .top-progress-dot {
-      width: 9px;
-      height: 9px;
-      border: 1.5px solid var(--muted);
-      border-radius: 50%;
-      opacity: .45;
+      width: 9px; height: 9px; border-radius: 50%;
+      border: 1.5px solid var(--color-accent-ink);
+      background: transparent;
+      opacity: .4;
     }
-    .top-progress-dot.assigned { opacity: 1; }
-    .top-progress-dot.done { border-color: var(--accent); background: var(--accent); opacity: 1; }
-    .count {
-      color: var(--muted);
-      font-size: .86rem;
-      font-variant-numeric: tabular-nums;
-      white-space: nowrap;
+    .top-progress-dot.assigned { opacity: 1; background: var(--color-accent-soft); }
+    .top-progress-dot.done { opacity: 1; background: var(--color-accent-ink); }
+
+    /* ── سطر التوجّه ── */
+
+    .direction-summary {
+      all: unset;
+      box-sizing: border-box;
+      display: flex; align-items: center; justify-content: space-between;
+      gap: var(--space-2);
+      width: 100%;
+      min-height: var(--tap);
+      padding: 12px 2px;
+      cursor: pointer;
     }
+    .direction-summary-copy {
+      display: flex; align-items: baseline; gap: 8px;
+      min-width: 0; flex: 1;
+    }
+    .direction-summary-label {
+      font-size: 11px; color: var(--color-muted);
+      flex: none; white-space: nowrap;
+    }
+    .direction-compass { font-size: 12px; }
+    .direction-summary-value {
+      font-size: 15px; font-weight: 600;
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+      flex: 1; min-width: 0;
+    }
+    .direction-summary-arrow { color: var(--color-accent-ink); font-size: 18px; flex: none; }
+    .direction-field { min-height: 76px; resize: none; }
+
+    /* ── الأزرار ── */
+
+    .primary-btn, .secondary-btn, .quiet-btn, .danger-btn {
+      display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+      min-height: var(--tap);
+      font-family: var(--font-heading);
+      font-weight: 600;
+      font-size: 14px;
+      line-height: 1.2;
+      color: var(--color-text);
+      background: transparent;
+      border: 1px solid transparent;
+      padding: var(--space-2) 18px;
+      border-radius: var(--radius-md);
+      transition: background .12s ease, border-color .12s ease;
+    }
+    .primary-btn { background: var(--color-accent-ink); color: var(--color-on-accent); }
+    .primary-btn:hover { background: var(--color-accent-strong); }
+    .secondary-btn { border-color: var(--color-divider); }
+    .secondary-btn:hover { background: color-mix(in srgb, var(--color-text) 7%, transparent); }
+    .quiet-btn { border-color: var(--color-divider); color: var(--color-muted); }
+    .quiet-btn:active, .danger-btn:active { background: color-mix(in srgb, var(--color-text) 14%, transparent); }
+    .danger-btn { background: var(--color-danger-soft); color: var(--color-danger); }
+    .small-btn { min-height: var(--tap); padding: 8px 14px; font-size: 13px; }
+
+    /* ── الحقول ── */
 
     .field, .select-field, textarea.field {
       width: 100%;
       min-height: var(--tap);
-      border: 1px solid var(--line);
-      border-radius: 13px;
-      padding: 11px 13px;
+      padding: 8px 12px;
+      font: inherit;
+      font-size: 14px;
+      color: var(--color-text);
+      caret-color: var(--color-accent-ink);
+      background: var(--color-surface);
+      border: 1px solid var(--color-divider);
+      border-radius: var(--radius-md);
       outline: none;
-      background: var(--card);
-      color: var(--text);
-      font-size: 1rem;
     }
-    .field:focus, .select-field:focus { box-shadow: 0 0 0 3px var(--focus); }
-    textarea.field {
-      resize: vertical;
-      min-height: 98px;
-      line-height: 1.75;
+    .field::placeholder, textarea.field::placeholder {
+      color: var(--color-muted); opacity: 1;
     }
-    .direction-field {
-      min-height: 76px;
-      max-height: 150px;
-      resize: none;
+    .field:focus, .select-field:focus { border-color: var(--color-accent-ink); }
+    textarea.field { min-height: 90px; resize: vertical; line-height: 1.7; }
+
+    .form-group { display: grid; gap: 5px; }
+    .form-group label, .form-label {
+      font-size: 12px;
+      color: var(--color-muted);
     }
-    .direction-summary {
-      width: 100%;
-      min-height: 44px;
+    .check-label {
+      display: flex; align-items: center; gap: 8px;
+      min-height: var(--tap); cursor: pointer; font-size: 14px;
+    }
+    .checkbox { width: 20px; height: 20px; flex: none; accent-color: var(--color-accent-ink); }
+    .tiny-note { font-size: 11px; color: var(--color-muted); line-height: 1.5; }
+
+    .inline-form, .entries-filter-grid, .form-grid {
       display: grid;
-      grid-template-columns: minmax(0, 1fr) auto;
-      align-items: center;
-      gap: 12px;
-      border: 0;
-      border-top: 1px solid var(--hairline);
-      border-radius: 0;
-      padding: 7px 0 0;
-      background: transparent;
-      text-align: start;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: var(--space-2);
     }
-    .direction-summary-copy { min-width: 0; display: flex; align-items: baseline; gap: 8px; }
-    .direction-summary-label {
-      display: block;
-      flex: none;
-      color: var(--muted);
-      font-size: .8rem;
-    }
-    .direction-summary-value {
-      display: block;
-      min-width: 0;
-      margin-top: 0;
-      overflow: hidden;
-      color: var(--text);
-      font-size: .96rem;
-      font-weight: 680;
-      line-height: 1.55;
-      white-space: nowrap;
-      text-overflow: ellipsis;
-    }
-    .direction-summary-arrow {
-      color: var(--accent);
-      font-size: 1.25rem;
-      font-weight: 760;
-    }
-    .tiny-note { color: var(--muted); font-size: .82rem; line-height: 1.55; }
+    .inline-form { grid-template-columns: 1fr auto; align-items: start; }
+    .form-grid.three { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 
-    .primary-btn, .secondary-btn, .quiet-btn, .danger-btn {
-      min-height: var(--tap);
-      border-radius: 13px;
-      padding: 10px 15px;
-      border: 1px solid transparent;
-      font-size: .95rem;
-      transition: transform .12s ease, background .12s ease, border-color .12s ease;
-    }
-    .primary-btn:active, .secondary-btn:active,
-    .quiet-btn:active, .danger-btn:active { transform: scale(.985); }
-    .primary-btn { background: var(--accent); color: var(--accent-ink); font-weight: 720; }
-    .primary-btn:hover { background: var(--accent-2); }
-    .secondary-btn { background: var(--accent-soft); color: var(--accent); font-weight: 680; }
-    .quiet-btn { background: transparent; color: var(--muted); border-color: var(--line); }
-    .danger-btn { background: var(--danger-soft); color: var(--danger); }
-    .small-btn { min-height: var(--tap); padding: 9px 12px; font-size: .88rem; }
+    /* ── أهم المهام ── */
 
-    .inline-form {
-      display: grid;
-      grid-template-columns: 1fr auto;
-      gap: 9px;
-      align-items: start;
-    }
+    .top-list, .card-list, .day-list, .preview-grid { display: grid; gap: 8px; }
 
-    .top-list, .card-list, .day-list, .preview-grid { display: grid; gap: 10px; }
     .top-item {
       display: grid;
-      grid-template-columns: auto 1fr auto;
-      gap: 10px;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: var(--space-2);
       align-items: center;
-      padding: 12px;
-      border-radius: 14px;
-      background: var(--panel);
-      border: 1px solid var(--hairline);
+      padding: 11px 12px;
+      border-radius: var(--radius-md);
+      background: var(--color-surface);
     }
-    .top-item.done .entry-title { text-decoration: line-through; opacity: .62; }
-    .checkbox { width: 22px; height: 22px; flex: none; accent-color: var(--accent); }
+    .top-item.done .entry-title { text-decoration: line-through; opacity: .55; }
+    .top-item.top-task-item { grid-template-columns: minmax(0, 1fr) var(--tap); }
+    .top-task-check {
+      width: 100%;
+      min-height: var(--tap);
+      display: grid;
+      grid-template-columns: var(--tap) minmax(0, 1fr);
+      align-items: center;
+      gap: var(--space-2);
+      cursor: pointer;
+    }
+    .top-task-check .checkbox { margin: 0; }
+
+    /* ── البطاقات: شريط المسار هو المُميّز البصري ── */
+
+    .card {
+      padding: 12px 13px;
+      border: 0;
+      border-radius: var(--radius-md);
+      background: var(--color-surface);
+      box-shadow: none;
+    }
+    .entry-card {
+      position: relative;
+      border-inline-start: 4px solid var(--track-untriaged);
+    }
+    .entry-card.path-untriaged { border-inline-start-color: var(--track-untriaged); }
+    .entry-card.path-do        { border-inline-start-color: var(--track-do); }
+    .entry-card.path-consider  { border-inline-start-color: var(--track-consider); }
+    .entry-card.path-waiting   { border-inline-start-color: var(--track-waiting); }
+    .entry-card.path-reference { border-inline-start-color: var(--track-reference); }
+
+    .entry-heading {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) var(--tap);
+      gap: 8px;
+      align-items: start;
+      direction: ltr;
+    }
+    .entry-heading > .path-menu {
+      grid-column: 2;
+      grid-row: 1;
+      direction: rtl;
+    }
+    .entry-heading .entry-text {
+      grid-column: 1;
+      grid-row: 1;
+      padding-block: 7px;
+    }
 
     .entry-title, .entry-text {
       margin: 0;
+      font-size: 15px;
+      font-weight: 600;
+      line-height: 1.7;
       white-space: pre-wrap;
       overflow-wrap: anywhere;
-      line-height: 1.78;
     }
-    .entry-text { font-size: 17px; font-weight: 600; }
-    .entry-title { font-weight: 690; }
 
     .meta {
-      display: flex;
-      flex-wrap: wrap;
-      align-items: center;
-      gap: 7px;
-      margin-top: 7px;
-      color: var(--muted);
-      font-size: .78rem;
-      font-weight: 400;
-      font-variant-numeric: tabular-nums;
-    }
-    .chip {
-      display: inline-flex;
-      align-items: center;
-      min-height: 26px;
-      padding: 3px 8px;
-      border-radius: 999px;
-      background: var(--chip);
-      color: var(--muted);
-      font-variant-numeric: normal;
+      display: flex; flex-wrap: wrap; align-items: center;
+      gap: 6px; margin-top: 8px;
     }
     .meta-text {
-      display: inline-flex;
-      align-items: center;
-      min-height: 26px;
-      color: var(--muted);
+      font-size: 12px;
+      color: var(--color-muted);
+      font-variant-numeric: tabular-nums;
     }
-    .chip.path-do { background: var(--accent-soft); color: var(--accent); }
-    .chip.path-waiting { background: var(--warning-soft); color: var(--warning); }
-    .chip.status-done, .chip.status-closed { opacity: .75; }
-    .chip.overdue { background: var(--danger-soft); color: var(--danger); }
-    .chip.top-marker { color: var(--warning); font-size: .92rem; }
 
-    .path-menu {
-      position: relative;
-      margin: 0;
+    /* ── الشرائح ── */
+
+    .chip {
+      display: inline-flex; align-items: center;
+      font-size: 11px; letter-spacing: 0;
+      padding: 3px 10px;
+      border-radius: calc(var(--radius-md) * .75);
+      background: var(--color-neutral-100);
+      color: var(--color-neutral-800);
     }
-    .path-menu > summary {
-      position: relative;
-      min-width: 28px;
-      justify-content: center;
-      gap: 5px;
-      list-style: none;
-      cursor: pointer;
-      user-select: none;
-    }
-    .path-menu > summary::-webkit-details-marker { display: none; }
-    .path-menu > summary::before {
-      content: "";
-      position: absolute;
-      inset: -9px -4px;
-    }
-    .path-menu > summary::after { content: none; }
-    .path-menu[open] > summary {
-      background: var(--accent-soft);
-      color: var(--accent);
-    }
-    .path-menu-options {
-      position: absolute;
-      z-index: 25;
-      inset-block-start: calc(100% + 6px);
-      inset-inline-start: 0;
-      width: min(190px, calc(100vw - 48px));
-      display: grid;
-      gap: 3px;
-      padding: 6px;
-      border: 1px solid var(--line);
-      border-radius: 12px;
-      background: var(--surface);
-      box-shadow: var(--shadow-lift);
-    }
-    .path-menu-option {
-      min-height: var(--tap);
-      border: 0;
-      border-radius: 9px;
-      padding: 8px 10px;
-      background: transparent;
-      color: var(--text);
-      text-align: start;
-      font-size: .9rem;
-    }
-    .path-menu-option:hover { background: var(--surface-2); }
+    .chip.path-do { background: var(--color-accent-soft); color: var(--color-accent-strong); }
+    .chip.path-consider { background: var(--color-accent-2-soft); color: var(--color-accent-2-ink); }
+    .chip.path-waiting { background: var(--color-neutral-200); color: var(--color-neutral-900); }
+    .chip.age-chip { background: none; padding-inline: 0; color: var(--color-muted); }
+    .chip.overdue { background: var(--color-danger-soft); color: var(--color-danger); }
+    .chip.top-marker { background: var(--color-accent-soft); color: var(--color-accent-strong); }
+    .chip.status-done, .chip.status-closed { opacity: .75; }
+
+    /* ── إجراءات البطاقة ── */
 
     .entry-actions {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 4px;
-      margin-top: 6px;
-      padding-top: 4px;
-      border-top: 1px solid var(--hairline);
+      display: flex; flex-wrap: wrap; gap: 4px;
+      margin-top: var(--space-2);
+      padding-top: 8px;
+      border-top: 1px solid var(--color-hairline);
     }
     .action-link {
-      width: var(--tap);
-      min-height: var(--tap);
-      border: 0;
-      border-radius: 10px;
-      background: transparent;
-      color: var(--muted);
-      padding: 8px;
-      font-size: 1.05rem;
+      display: inline-flex; align-items: center;
+      min-width: var(--tap); min-height: var(--tap);
+      justify-content: center;
+      border: 0; background: transparent;
+      color: var(--color-muted);
+      padding: 8px 10px;
+      border-radius: var(--radius-sm);
+      font-size: 13px;
+      font-weight: 600;
     }
-    .action-link:hover { background: var(--surface-2); }
-    .action-link.primary { color: var(--accent); font-weight: 720; }
-    .action-link.top { color: var(--warning); }
-    .action-link.danger { color: var(--danger); }
+    .action-link:hover { background: color-mix(in srgb, var(--color-text) 7%, transparent); }
+    .action-link.primary { color: var(--color-accent-ink); }
+    .action-link.top { color: var(--color-accent-ink); }
+    .action-link.danger { color: var(--color-danger); }
 
-    .segmented {
-      display: grid;
-      grid-template-columns: repeat(5, minmax(0, 1fr));
-      gap: 5px;
-      padding: 5px;
-      border: 1px solid var(--line);
-      border-radius: 15px;
-      background: var(--panel);
-    }
-    .segment-btn {
-      min-height: var(--tap);
-      border: 0;
-      border-radius: 11px;
-      background: transparent;
-      color: var(--muted);
-      font-size: .82rem;
-      padding: 7px 4px;
-    }
-    .segment-btn.active { background: var(--accent); color: var(--accent-ink); font-weight: 720; }
+    /* ── قائمة نقل المسار ── */
 
-    .path-toolbar, .search-grid, .form-grid {
-      display: grid;
-      grid-template-columns: repeat(2, minmax(0, 1fr));
-      gap: 10px;
-    }
-    .path-toolbar { grid-template-columns: minmax(0, 1fr); }
-    .form-grid.three { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-    .form-group { display: grid; gap: 6px; }
-    .form-group label { color: var(--muted); font-size: .84rem; }
-    .check-label {
-      display: flex;
-      align-items: center;
-      gap: 9px;
-      min-height: var(--tap);
+    .path-menu { position: relative; align-self: start; }
+    .path-menu > summary {
+      list-style: none;
+      display: inline-flex; align-items: center; gap: 2px;
+      width: var(--tap); height: var(--tap); padding: 0;
+      justify-content: center;
       cursor: pointer;
+      color: var(--color-accent-ink);
+      font-weight: 600;
     }
+    .path-menu > summary::-webkit-details-marker { display: none; }
+    .path-menu-icon { font-size: 18px; line-height: 1; }
+    .path-menu > summary::after { content: '‹'; font-size: 12px; }
+    .path-menu[open] > summary { background: color-mix(in srgb, var(--color-text) 7%, transparent); }
+    .path-menu-options {
+      position: absolute; z-index: 20;
+      inset-inline-start: 0; inset-inline-end: auto; top: calc(100% + 4px);
+      width: 156px; display: grid; gap: 2px;
+      padding: 4px;
+      border: 1px solid var(--color-divider);
+      border-radius: var(--radius-md);
+      background: var(--color-bg);
+      box-shadow: var(--shadow-lg);
+    }
+    .path-menu-option {
+      all: unset; box-sizing: border-box;
+      cursor: pointer; padding: 9px 10px;
+      border-radius: var(--radius-sm);
+      font-size: 12px; text-align: start;
+      min-height: var(--tap); display: flex; align-items: center; gap: 9px;
+    }
+    .path-option-icon { width: 20px; text-align: center; font-size: 16px; line-height: 1; }
+    .path-menu-option:hover { background: color-mix(in srgb, var(--color-text) 8%, transparent); }
 
-    .day-button {
-      width: 100%;
-      display: flex;
-      justify-content: space-between;
-      gap: 12px;
-      align-items: center;
-      min-height: 56px;
-      border: 1px solid var(--line);
-      border-radius: 14px;
-      background: var(--surface);
-      padding: 12px;
-      text-align: start;
+    /* ── الالتقاطات والمرشحات ── */
+
+    .segmented { display: flex; flex-wrap: wrap; gap: 6px; }
+    .segment-btn {
+      all: unset; box-sizing: border-box;
+      cursor: pointer;
+      min-height: var(--tap);
+      display: inline-flex; align-items: center;
+      padding: 8px 13px;
+      border-radius: 999px;
+      background: var(--color-surface);
+      color: var(--color-text);
+      font-size: 13px; font-weight: 600;
     }
-    .day-button.active { border-color: var(--accent); box-shadow: 0 0 0 3px var(--focus); }
+    .segment-btn.active { background: var(--color-accent-ink); color: var(--color-on-accent); }
+
+    .entries-path-filters {
+      display: flex;
+      gap: 6px;
+      overflow-x: auto;
+      padding-block: 2px 5px;
+      scrollbar-width: none;
+    }
+    .entries-path-filters::-webkit-scrollbar { display: none; }
+    .entries-path-button {
+      all: unset;
+      box-sizing: border-box;
+      flex: none;
+      min-width: var(--tap);
+      min-height: var(--tap);
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 7px;
+      padding: 8px;
+      cursor: pointer;
+      border: 1px solid var(--color-divider);
+      border-radius: var(--radius-md);
+      background: var(--color-surface);
+      color: var(--color-text);
+      font-size: 12px;
+      font-weight: 600;
+      white-space: nowrap;
+    }
+    .entries-path-button .count { color: inherit; opacity: .7; }
+    .entries-path-name { display: inline-flex; align-items: center; gap: 4px; }
+    .entries-path-icon { font-size: 15px; line-height: 1; }
+    .entries-path-button.active {
+      border-color: var(--color-accent-ink);
+      background: var(--color-accent-ink);
+      color: var(--color-on-accent);
+    }
+    .entries-filter-options {
+      border-block: 1px solid var(--color-hairline);
+    }
+    .entries-filter-options > summary {
+      min-height: var(--tap);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      cursor: pointer;
+      list-style: none;
+      font-size: 12px;
+      font-weight: 600;
+    }
+    .entries-filter-options > summary::-webkit-details-marker { display: none; }
+    .entries-filter-options > summary::after {
+      content: '‹';
+      color: var(--color-accent-ink);
+      font-size: 16px;
+      flex: none;
+    }
+    .entries-filter-options[open] > summary::after { content: '⌄'; }
+    .entries-filter-summary {
+      margin-inline-start: auto;
+      min-width: 0;
+      overflow: hidden;
+      color: var(--color-muted);
+      font-weight: 400;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .entries-filter-grid {
+      padding-block: 10px 12px;
+      align-items: end;
+    }
+    .entries-filter-grid .filter-clear { grid-column: 1 / -1; }
+
+    /* ── الأيام ── */
+
+    .day-list {
+      display: flex; gap: 8px;
+      overflow-x: auto; padding-bottom: 6px;
+      scrollbar-width: none;
+    }
+    .day-list::-webkit-scrollbar { display: none; }
+    .day-list > .empty { flex: 1; }
+    .day-button {
+      all: unset; box-sizing: border-box;
+      cursor: pointer;
+      min-width: 78px; flex: none;
+      text-align: center;
+      padding: 10px 8px;
+      border-radius: var(--radius-md);
+      background: var(--color-surface);
+      color: var(--color-text);
+    }
+    .day-button .weekday { display: block; font-size: 11px; font-weight: 600; }
+    .day-button strong { display: block; font-size: 17px; font-weight: 600; margin: 2px 0; font-variant-numeric: tabular-nums; }
+    .day-button .count { display: block; font-size: 10px; color: var(--color-muted); }
+    .day-button.active { background: var(--color-accent-ink); color: var(--color-on-accent); }
+    .day-button.active .weekday, .day-button.active .count { color: var(--color-on-accent); opacity: .85; }
+
+    .archive-toolbar {
+      display: flex; align-items: center; gap: 8px;
+      margin-bottom: var(--space-2);
+    }
+    .archive-month-picker {
+      flex: 1; display: flex; flex-direction: column; align-items: center;
+      padding: 8px 10px;
+      border: 1px solid var(--color-divider);
+      border-radius: var(--radius-md);
+      background: var(--color-surface);
+      position: relative;
+    }
+    .archive-month-picker strong { font-size: 15px; font-weight: 600; }
+    .archive-month-picker span { font-size: 11px; color: var(--color-muted); font-variant-numeric: tabular-nums; }
+    .archive-month-picker input {
+      position: absolute; inset: 0; opacity: 0; cursor: pointer;
+      width: 100%; height: 100%;
+    }
+    .archive-month-button {
+      all: unset; box-sizing: border-box;
+      cursor: pointer; flex: none;
+      width: var(--tap); height: var(--tap);
+      display: grid; place-items: center;
+      border: 1px solid var(--color-divider);
+      border-radius: var(--radius-md);
+      color: var(--color-accent-ink);
+      font-size: 16px;
+    }
+    .archive-summary { font-size: 12px; color: var(--color-muted); margin-bottom: var(--space-2); }
+    .two-col { display: grid; gap: var(--space-4); align-items: start; }
+    .two-col > .panel + .panel { margin-top: 0; }
+
+    /* ── الفراغ ── */
 
     .empty {
-      padding: 30px 18px;
-      border: 1px dashed var(--line);
-      border-radius: var(--radius);
-      color: var(--muted);
-      background: var(--panel);
+      padding: 22px;
+      border: 1px dashed var(--color-divider);
+      border-radius: var(--radius-md);
       text-align: center;
-      line-height: 1.7;
+      color: var(--color-muted);
+      font-size: 13px;
+      line-height: 1.6;
+      background: none;
     }
 
-    .thumb-row {
+    /* ── الصور ── */
+
+    .thumb-row, .preview-grid {
       display: grid;
       grid-template-columns: repeat(auto-fill, minmax(76px, 1fr));
-      gap: 8px;
-      margin-top: 10px;
+      gap: 8px; margin-top: 8px;
     }
     .thumb, .preview-item {
-      position: relative;
-      overflow: hidden;
-      border: 1px solid var(--line);
-      border-radius: 12px;
-      background: var(--panel);
+      position: relative; overflow: hidden;
+      border: 1px solid var(--color-divider);
+      border-radius: var(--radius-md);
+      background: var(--color-surface);
       aspect-ratio: 1;
     }
-    .thumb img, .preview-item img {
-      width: 100%;
-      height: 100%;
-      display: block;
-      object-fit: cover;
-    }
+    .thumb img, .preview-item img { width: 100%; height: 100%; display: block; object-fit: cover; }
     .preview-item button {
       position: absolute;
-      inset-block-start: 6px;
-      inset-inline-start: 6px;
-      width: var(--tap);
-      height: var(--tap);
-      min-height: var(--tap);
-      border: 0;
-      border-radius: 10px;
-      background: color-mix(in srgb, var(--danger-soft) 92%, transparent);
-      color: var(--danger);
+      inset-block-start: 6px; inset-inline-start: 6px;
+      width: var(--tap); height: var(--tap); min-height: var(--tap);
+      border: 0; border-radius: var(--radius-sm);
+      background: var(--color-danger-soft);
+      color: var(--color-danger);
     }
+    .edit-images summary {
+      cursor: pointer; list-style: none;
+      font-size: 13px; font-weight: 600;
+      min-height: var(--tap); display: flex; align-items: center; gap: 6px;
+    }
+    .edit-images summary::after { content: '›'; color: var(--color-accent-ink); }
+    .edit-images[open] summary::after { content: '⌄'; }
+    .edit-age-field { display: flex; align-items: baseline; gap: 8px; font-size: 12px; color: var(--color-muted); }
+    .edit-age-field span:first-child { font-weight: 600; }
+
+    /* ── زر الالتقاط المركزي ── */
 
     .capture-fab {
-      position: fixed;
-      z-index: 35;
-      bottom: calc(94px + var(--safe-bottom));
-      width: 58px;
-      height: 58px;
-      border: 0;
-      border-radius: 20px;
-      background: var(--accent);
-      color: var(--accent-ink);
-      box-shadow: var(--shadow-lift);
-      font-size: 1.8rem;
-      line-height: 1;
-      transition: opacity .16s ease;
+      position: fixed; z-index: 35;
+      left: 50%; right: auto;
+      bottom: calc(3px + var(--safe-bottom));
+      width: 56px; height: 56px;
+      border: 0; border-radius: 50%;
+      background: var(--color-accent-ink);
+      color: var(--color-on-accent);
+      display: grid; place-items: center;
+      font-size: 26px; line-height: 1;
+      box-shadow: 0 0 0 5px var(--color-surface), var(--shadow-lg);
+      transform: translateX(-50%);
+      transition: opacity .12s ease, transform .12s ease, visibility .12s ease;
     }
-    .capture-fab.left { left: 18px; }
-    .capture-fab.right { right: 18px; }
-    .capture-fab.avoiding-control {
-      opacity: 0;
-      pointer-events: none;
-    }
+    .capture-fab:active { transform: translateX(-50%) scale(.96); }
+    body:has(dialog[open]) .capture-fab,
     body.path-menu-open .capture-fab {
-      opacity: 0;
-      pointer-events: none;
+      opacity: 0; visibility: hidden; pointer-events: none;
     }
-    body:has(dialog[open]) .capture-fab { display: none; }
+
+    /* ── التنقل السفلي ── */
 
     .bottom-nav {
-      position: fixed;
-      z-index: 30;
-      left: 50%;
-      bottom: 12px;
-      transform: translateX(-50%);
-      width: min(620px, calc(100% - 24px));
+      position: fixed; z-index: 30;
+      bottom: 0; left: 0; right: 0;
       display: grid;
       grid-template-columns: repeat(5, minmax(0, 1fr));
-      gap: 5px;
-      padding: 7px;
-      padding-bottom: calc(7px + var(--safe-bottom));
-      border: 1px solid var(--line);
-      border-radius: 20px;
-      background: var(--surface);
-      box-shadow: var(--shadow-lift);
-    }
-    @supports (backdrop-filter: blur(18px)) {
-      .bottom-nav { background: color-mix(in srgb, var(--surface) 88%, transparent); backdrop-filter: blur(18px); }
+      align-items: center;
+      padding: 8px 6px calc(8px + var(--safe-bottom));
+      background: var(--color-surface);
+      border-top: 1px solid var(--color-divider);
     }
     .nav-btn {
-      min-height: 48px;
-      border: 0;
-      border-radius: 14px;
-      background: transparent;
-      color: var(--muted);
-      font-size: .9rem;
-      padding: 10px 4px;
+      all: unset; box-sizing: border-box;
+      cursor: pointer; text-align: center;
+      min-width: 0; min-height: var(--tap);
+      display: grid; place-items: center;
+      padding: 6px 2px;
+      color: var(--color-muted);
+      font-size: 12px; font-weight: 600;
     }
-    .nav-btn.active { background: var(--accent); color: var(--accent-ink); font-weight: 720; }
-    .nav-btn.settings-tab {
-      position: relative;
-      font-size: 1.15rem;
-      line-height: 1;
-    }
+    .capture-nav-slot { min-width: 0; min-height: var(--tap); }
+    .nav-btn.active { color: var(--color-accent-ink); }
+    .nav-btn.settings-tab { font-size: 15px; position: relative; }
     .nav-btn.settings-tab.backup-due::after {
-      content: "";
-      position: absolute;
-      top: 8px;
-      right: 10px;
-      width: 8px;
-      height: 8px;
-      border: 2px solid var(--surface);
-      border-radius: 50%;
-      background: var(--warning);
+      content: ''; position: absolute;
+      top: 4px; inset-inline-end: calc(50% - 14px);
+      width: 6px; height: 6px; border-radius: 50%;
+      background: var(--color-accent-2);
     }
+
+    /* ── الحوارات والأوراق السفلية ── */
 
     dialog {
       width: min(600px, calc(100% - 24px));
       max-height: 90dvh;
       padding: 0;
-      border: 1px solid var(--line);
-      border-radius: 24px;
-      background: var(--surface);
-      color: var(--text);
-      box-shadow: 0 28px 80px rgba(0, 0, 0, .32);
+      border: 1px solid var(--color-divider);
+      border-radius: var(--radius-lg);
+      background: var(--color-bg);
+      color: var(--color-text);
+      box-shadow: var(--shadow-lg);
     }
-    dialog.capture-sheet {
-      margin-block-end: calc(12px + var(--safe-bottom));
-      align-self: end;
-    }
-    dialog::backdrop { background: rgba(12, 17, 15, .55); backdrop-filter: blur(3px); }
-    .dialog-inner { max-height: 90dvh; overflow-y: auto; padding: 20px; }
-    .dialog-head {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 12px;
-      margin-bottom: 16px;
-    }
-    .dialog-head h2 { margin: 0; font-size: 1.16rem; font-weight: 760; }
-    .dialog-close {
-      width: var(--tap);
-      height: var(--tap);
+    dialog::backdrop { background: color-mix(in srgb, #2d2b2b 50%, transparent); }
+    dialog.capture-sheet, dialog.edit-sheet {
+      width: 100%; max-width: 100%;
+      margin: 0 0 0 auto;
+      inset-block-end: 0; inset-block-start: auto;
       border: 0;
-      border-radius: 12px;
-      background: var(--surface-2);
-      color: var(--text);
-      font-size: 1.1rem;
+      border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+    }
+    dialog.capture-sheet .dialog-inner, dialog.edit-sheet .dialog-inner {
+      padding: 18px 18px calc(18px + var(--safe-bottom));
+    }
+    .dialog-inner { max-height: 90dvh; overflow-y: auto; padding: var(--space-4); }
+    .dialog-head {
+      display: flex; align-items: center; justify-content: space-between;
+      gap: var(--space-2); margin-bottom: var(--space-3);
+    }
+    .dialog-head h2 { margin: 0; font-size: 20px; font-weight: 600; }
+    .dialog-close {
+      all: unset; box-sizing: border-box;
+      cursor: pointer; flex: none;
+      width: var(--tap); height: var(--tap);
+      display: grid; place-items: center;
+      border-radius: var(--radius-sm);
+      font-size: 18px; color: var(--color-muted);
     }
     .dialog-actions {
-      display: flex;
-      justify-content: space-between;
-      gap: 10px;
-      flex-wrap: wrap;
-      margin-top: 18px;
+      display: flex; justify-content: space-between;
+      gap: var(--space-2); flex-wrap: wrap; margin-top: var(--space-3);
     }
-
+    .edit-sheet-actions { display: flex; justify-content: space-between; gap: var(--space-2); flex-wrap: wrap; }
+    .edit-sheet .form-grid { grid-template-columns: 1fr; }
+    .options-body { display: grid; gap: 6px; padding: 0 12px 12px; }
     details.options {
-      border: 1px solid var(--line);
-      border-radius: 14px;
-      background: var(--panel);
+      border-radius: var(--radius-md);
+      background: var(--color-surface);
       overflow: hidden;
     }
     details.options > summary {
-      min-height: 48px;
-      padding: 12px 14px;
+      padding: 11px 12px; cursor: pointer;
       list-style: none;
-      cursor: pointer;
-      font-weight: 700;
+      font-size: 13px; font-weight: 600;
+      min-height: var(--tap); display: flex; align-items: center;
     }
     details.options > summary::-webkit-details-marker { display: none; }
-    .options-body { padding: 0 14px 14px; display: grid; gap: 12px; }
 
-    .settings-grid { display: grid; gap: 12px; }
-    .settings-item { padding: 15px; border: 1px solid var(--line); border-radius: 14px; background: var(--panel); }
-    .settings-item.emphasis { border-color: var(--accent); background: color-mix(in srgb, var(--accent-soft) 42%, var(--panel)); }
-    .settings-item h3 { margin: 0 0 7px; font-size: 1rem; font-weight: 760; }
-    .settings-item p { margin: 0 0 12px; color: var(--muted); font-size: .87rem; line-height: 1.65; }
-    .settings-actions { display: flex; gap: 10px; flex-wrap: wrap; }
+    /* ── الإعدادات ── */
+
+    .settings-grid { display: grid; gap: var(--space-2); }
+    .settings-item {
+      padding: 14px;
+      border: 0;
+      border-radius: var(--radius-md);
+      background: var(--color-surface);
+    }
+    .settings-item.emphasis { box-shadow: inset 3px 0 0 var(--color-accent); }
+    .settings-item h3 { margin: 0 0 6px; font-size: 14px; font-weight: 600; }
+    .settings-item p { margin: 0 0 10px; font-size: 12px; color: var(--color-muted); line-height: 1.6; }
+    .settings-actions { display: flex; gap: 8px; flex-wrap: wrap; }
     .file-action { display: inline-flex; align-items: center; justify-content: center; cursor: pointer; }
+
     .storage-meter {
-      height: 9px;
-      margin: 2px 0 14px;
+      height: 7px; border-radius: var(--radius-sm);
+      background: var(--color-neutral-300);
       overflow: hidden;
-      border-radius: 5px;
-      background: var(--surface-2);
     }
-    .storage-meter > span {
-      display: block;
-      width: 0;
-      height: 100%;
-      background: var(--accent);
-      transition: width .2s ease;
-    }
-    .storage-meter.warning > span { background: var(--warning); }
+    .storage-meter > span { display: block; height: 100%; background: var(--color-accent); }
+    .storage-meter.warning > span { background: var(--color-accent-2); }
+
+    /* ── التنبيه: أعلى الشاشة كما في النموذج ── */
 
     .toast {
-      position: fixed;
-      z-index: 60;
-      right: 50%;
-      bottom: calc(104px + var(--safe-bottom));
-      transform: translateX(50%) translateY(20px);
-      width: min(560px, calc(100% - 28px));
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 14px;
-      padding: 14px 16px;
-      border-radius: 15px;
+      position: fixed; z-index: 60;
+      top: calc(14px + env(safe-area-inset-top, 0px));
+      left: 16px; right: 16px;
+      margin-inline: auto;
+      width: min(560px, calc(100% - 32px));
+      display: flex; align-items: center; justify-content: space-between;
+      gap: var(--space-2);
+      padding: 10px 14px;
+      border-radius: var(--radius-md);
       background: var(--toast-bg);
       color: var(--toast-text);
+      font-size: 13px; line-height: 1.5;
       opacity: 0;
+      transform: translateY(-14px);
       pointer-events: none;
       transition: opacity .2s ease, transform .2s ease;
-      box-shadow: var(--shadow-lift);
-      font-size: .92rem;
-      line-height: 1.5;
+      box-shadow: var(--shadow-lg);
     }
-    .toast.visible { opacity: 1; transform: translateX(50%) translateY(0); pointer-events: auto; }
+    .toast.visible { opacity: 1; transform: translateY(0); pointer-events: auto; }
     .toast button {
-      min-height: var(--tap);
-      border: 0;
-      border-radius: 10px;
-      background: transparent;
+      all: unset; box-sizing: border-box;
+      cursor: pointer; flex: none;
+      min-width: var(--tap); min-height: var(--tap); padding: 4px 8px;
       color: var(--toast-text);
-      font-weight: 720;
-      text-decoration: underline;
+      font-weight: 600; text-decoration: underline;
     }
 
+    .count { font-size: 12px; color: var(--color-muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+
+    /* ── الاستجابة ── */
+
     @media (min-width: 760px) {
-      .app-shell { padding-top: 34px; }
-      .two-col { display: grid; grid-template-columns: 1.05fr .95fr; gap: 14px; align-items: start; }
-      .capture-fab.left { left: calc(50% - 430px); }
-      .capture-fab.right { right: calc(50% - 430px); }
+      .app-shell { padding-top: 30px; }
+      .two-col { grid-template-columns: 1.05fr .95fr; }
+      .edit-sheet .form-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
     }
 
     @media (max-width: 560px) {
-      body { font-size: 17px; }
-      .app-shell { padding-inline: 14px; }
-      header { align-items: flex-start; }
-      .brand p { white-space: normal; }
-      .today-head, .section-head { align-items: flex-start; }
-      .inline-form, .path-toolbar, .search-grid, .form-grid, .form-grid.three { grid-template-columns: 1fr; }
-      .segmented { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-      .bottom-nav { width: min(520px, calc(100% - 18px)); }
-      .nav-btn { font-size: .82rem; }
-      .dialog-inner { padding: 18px; }
-      .settings-actions > button, .settings-actions > label { flex: 1 1 150px; }
+      .app-shell { padding-inline: 16px; }
+      .inline-form, .entries-filter-grid, .form-grid, .form-grid.three { grid-template-columns: 1fr; }
+      .entries-filter-grid .filter-clear { grid-column: auto; }
+      .inline-form { grid-template-columns: 1fr auto; }
+      .settings-actions > button, .settings-actions > label { flex: 1 1 140px; }
+    }
+
+    @media (max-width: 359px) {
+      .entries-path-filters {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        overflow-x: visible;
+      }
+      .entries-path-button { min-width: 0; }
     }
 
     @media (prefers-reduced-motion: reduce) {
-      *, *::before, *::after { scroll-behavior: auto !important; transition: none !important; animation: none !important; }
+      *, *::before, *::after { transition: none !important; animation: none !important; scroll-behavior: auto !important; }
+    }
+
+    @media (prefers-contrast: more) {
+      :root { --color-muted: var(--color-text); --color-divider: var(--color-text); }
     }
   </style>
 </head>
 <body>
+  <a class="skip-link" href="#mainContent">تخطَّ إلى المحتوى</a>
   <div class="app-shell">
     <header>
       <div class="brand">
@@ -751,7 +1010,7 @@
       </div>
     </header>
 
-    <main>
+    <main id="mainContent" tabindex="-1">
       <section class="view active" id="todayView" data-view="today">
         <div class="today-hero">
           <div class="today-head">
@@ -767,7 +1026,7 @@
           </div>
           <button class="direction-summary" id="directionButton" type="button">
             <span class="direction-summary-copy">
-              <span class="direction-summary-label">توجّه اليوم</span>
+              <span class="direction-summary-label"><span class="direction-compass" aria-hidden="true">🧭</span>توجّه اليوم</span>
               <span class="direction-summary-value" id="directionDisplay" dir="auto">حدد توجّه اليوم</span>
             </span>
             <span class="direction-summary-arrow" aria-hidden="true">‹</span>
@@ -803,21 +1062,44 @@
         </section>
       </section>
 
-      <section class="view" id="pathsView" data-view="paths">
+      <section class="view" id="entriesView" data-view="entries">
         <section class="panel stack">
           <div class="section-head">
             <div>
-              <h2>المسارات</h2>
-              <p>اختر المسار.</p>
+              <h2>الالتقاطات</h2>
             </div>
+            <span class="count" id="entriesCount">0</span>
           </div>
-          <div class="path-toolbar">
-            <div class="form-group">
-              <label for="pathFilter">المسار</label>
-              <select class="select-field" id="pathFilter"></select>
+          <input class="field" id="entriesSearchInput" type="search" maxlength="200" placeholder="ابحث بالكلمة أو الحرف…" autocomplete="off" aria-label="البحث في الالتقاطات">
+          <div class="entries-path-filters" id="entriesPathFilters" role="group" aria-label="تصفية الالتقاطات حسب المسار"></div>
+          <details class="entries-filter-options" id="entriesFilterOptions">
+            <summary>
+              <span>التاريخ والترتيب</span>
+              <span class="entries-filter-summary" id="entriesFilterSummary">الأحدث</span>
+            </summary>
+            <div class="entries-filter-grid">
+              <div class="form-group">
+                <label for="entriesDateFrom">من</label>
+                <input class="field" id="entriesDateFrom" type="date">
+              </div>
+              <div class="form-group">
+                <label for="entriesDateTo">إلى</label>
+                <input class="field" id="entriesDateTo" type="date">
+              </div>
+              <div class="form-group">
+                <label for="entriesSort">الترتيب</label>
+                <select class="select-field" id="entriesSort">
+                  <option value="newest">الأحدث</option>
+                  <option value="oldest">الأقدم</option>
+                  <option value="due">أقرب موعد</option>
+                </select>
+              </div>
+              <button class="quiet-btn filter-clear" id="clearEntriesFiltersButton" type="button">مسح الكل</button>
             </div>
-          </div>
-          <div class="card-list" id="pathList"></div>
+          </details>
+          <div class="tiny-note" id="entriesResultsNote" role="status" aria-live="polite"></div>
+          <div class="card-list" id="entriesList"></div>
+          <button class="quiet-btn" id="loadMoreEntriesButton" type="button" hidden>عرض نتائج أقدم</button>
         </section>
       </section>
 
@@ -826,15 +1108,24 @@
           <section class="panel stack">
             <div class="section-head">
               <div>
-                <h2>الأيام</h2>
-                <p>آخر 30 يومًا أولًا.</p>
+                <h2>أرشيف الأيام</h2>
+                <p>شهر واحد، ويوم واحد مفتوح في كل مرة.</p>
               </div>
             </div>
+            <div class="archive-toolbar" aria-label="التنقل بين أشهر الأرشيف">
+              <button class="archive-month-button" id="archivePreviousMonthButton" type="button" aria-label="الشهر السابق" title="الشهر السابق">›</button>
+              <label class="archive-month-picker" for="archiveMonthInput">
+                <strong id="archiveMonthLabel"></strong>
+                <span id="archiveMonthNumeric"></span>
+                <input id="archiveMonthInput" type="month" aria-label="اختر شهر الأرشيف">
+              </label>
+              <button class="archive-month-button" id="archiveNextMonthButton" type="button" aria-label="الشهر التالي" title="الشهر التالي">‹</button>
+            </div>
+            <p class="archive-summary" id="archiveMonthSummary"></p>
             <div class="day-list" id="daysList"></div>
-            <button class="quiet-btn" id="loadMoreDaysButton">تحميل أيام أقدم</button>
           </section>
 
-          <section class="panel stack">
+          <section class="panel stack" id="selectedDayPanel">
             <div class="section-head">
               <div>
                 <h2 id="selectedDayTitle">تفاصيل اليوم</h2>
@@ -852,44 +1143,16 @@
         </div>
       </section>
 
-      <section class="view" id="searchView" data-view="search">
-        <section class="panel stack">
-          <div class="section-head">
-            <div>
-              <h2>البحث</h2>
-              <p>في النص والمسار والتاريخ.</p>
-            </div>
-            <span class="count" id="searchCount">0</span>
-          </div>
-          <input class="field" id="searchInput" type="search" placeholder="ابحث في كل شيء…" autocomplete="off">
-          <div class="search-grid">
-            <div class="form-group">
-              <label for="searchPathFilter">المسار</label>
-              <select class="select-field" id="searchPathFilter"></select>
-            </div>
-            <div class="form-group">
-              <label for="dateFrom">من</label>
-              <input class="field" id="dateFrom" type="date">
-            </div>
-            <div class="form-group">
-              <label for="dateTo">إلى</label>
-              <input class="field" id="dateTo" type="date">
-            </div>
-          </div>
-          <div class="tiny-note" id="searchResultsNote"></div>
-          <div class="card-list" id="searchList"></div>
-        </section>
-      </section>
     </main>
   </div>
 
-  <button class="capture-fab right" id="captureFab" aria-label="التقاط جديد" title="التقاط جديد">+</button>
+  <button class="capture-fab" id="captureFab" aria-label="التقاط جديد" title="التقاط جديد">+</button>
 
   <nav class="bottom-nav" aria-label="التنقل الرئيسي">
-    <button class="nav-btn active" data-target="today">اليوم</button>
-    <button class="nav-btn" data-target="paths">المسارات</button>
+    <button class="nav-btn active" data-target="today" aria-current="page">اليوم</button>
+    <button class="nav-btn" data-target="entries">الالتقاطات</button>
+    <span class="capture-nav-slot" aria-hidden="true"></span>
     <button class="nav-btn" data-target="days">الأيام</button>
-    <button class="nav-btn" data-target="search">البحث</button>
     <button class="nav-btn settings-tab" id="settingsButton" aria-label="الإعدادات" title="الإعدادات">&#9881;</button>
   </nav>
 
@@ -939,7 +1202,7 @@
     </div>
   </dialog>
 
-  <dialog id="editDialog">
+  <dialog class="edit-sheet" id="editDialog">
     <div class="dialog-inner">
       <div class="dialog-head">
         <h2>تحرير الإدخال</h2>
@@ -951,34 +1214,36 @@
           <label for="editText">النص</label>
           <textarea class="field" id="editText" rows="5" dir="auto" maxlength="5000"></textarea>
         </div>
-        <div class="form-group">
-          <label for="editPath">المسار</label>
-          <select class="select-field" id="editPath"></select>
-        </div>
         <div class="form-grid">
           <div class="form-group">
-            <label for="editDueDate">تاريخ التنفيذ</label>
-            <input class="field" id="editDueDate" type="date">
+            <label for="editPath">المسار</label>
+            <select class="select-field" id="editPath"></select>
           </div>
           <div class="form-group">
-            <label for="editFollowUpDate">تاريخ المتابعة</label>
-            <input class="field" id="editFollowUpDate" type="date">
+            <span class="form-label">منذ الإضافة</span>
+            <div class="edit-age-field" id="editEntryAge"><span aria-hidden="true">⏳</span><strong>اليوم</strong></div>
           </div>
+        </div>
+        <div class="form-group">
+          <label for="editDueDate">موعد التنفيذ</label>
+          <input class="field" id="editDueDate" type="date">
         </div>
         <label class="check-label">
           <input class="checkbox" id="editTopToday" type="checkbox">
-          ضمن أهم مهام اليوم
+          ★ أهم اليوم
         </label>
-        <div>
-          <div class="tiny-note">الصور الحالية</div>
-          <div class="preview-grid" id="editExistingImages"></div>
-        </div>
-        <div class="settings-actions">
-          <label class="quiet-btn small-btn file-action" for="editImageInput">إضافة صور</label>
-          <input id="editImageInput" type="file" accept="image/*" multiple hidden>
-        </div>
-        <div class="preview-grid" id="editNewPreview"></div>
-        <div class="dialog-actions">
+        <details class="options edit-images" id="editImagesOptions">
+          <summary>الصور</summary>
+          <div class="options-body">
+            <div class="preview-grid" id="editExistingImages"></div>
+            <div class="settings-actions">
+              <label class="quiet-btn small-btn file-action" for="editImageInput">إضافة صور</label>
+              <input id="editImageInput" type="file" accept="image/*" multiple hidden>
+            </div>
+            <div class="preview-grid" id="editNewPreview"></div>
+          </div>
+        </details>
+        <div class="dialog-actions edit-sheet-actions">
           <button type="button" class="danger-btn" id="editDeleteButton">حذف</button>
           <button type="submit" class="primary-btn">حفظ التعديل</button>
         </div>
@@ -1003,14 +1268,6 @@
             <button class="secondary-btn small-btn" id="requestPersistenceButton">طلب التخزين الدائم</button>
           </div>
         </section>
-        <section class="settings-item">
-          <h3>موضع الالتقاط</h3>
-          <p>يمكن وضع زر الالتقاط حيث يناسب يدك على iPhone.</p>
-          <select class="select-field" id="captureSideSelect">
-            <option value="left">اليسار</option>
-            <option value="right">اليمين</option>
-          </select>
-        </section>
         <section class="settings-item emphasis">
           <h3>iCloud وملفات الآيفون</h3>
           <p id="icloudStatus">على iPhone اختر حفظ الحزمة في تطبيق الملفات داخل iCloud Drive.</p>
@@ -1027,11 +1284,13 @@
           </div>
         </section>
         <section class="settings-item">
-          <h3>استيراد</h3>
-          <p>يدعم نسخ v1 وv0، ويتحقق من اكتمال الأجزاء قبل كتابة أي سجل.</p>
+          <h3>الاستعادة وفحص النسخة</h3>
+          <p id="backupVerificationStatus">لم تُفحص نسخة حديثة ببصمات SHA-256 بعد. الفحص لا يدمج أو يغيّر إدخالاتك.</p>
           <div class="settings-actions">
-            <label class="quiet-btn small-btn file-action" for="importInput">اختيار ملفات JSON</label>
-          <input id="importInput" type="file" accept="application/json,.json" multiple hidden>
+            <label class="secondary-btn small-btn file-action" for="verifyBackupInput">فحص نسخة</label>
+            <input id="verifyBackupInput" type="file" accept="application/json,.json" multiple hidden>
+            <label class="quiet-btn small-btn file-action" for="importInput">استيراد نسخة</label>
+            <input id="importInput" type="file" accept="application/json,.json" multiple hidden>
           </div>
         </section>
         <section class="settings-item">
