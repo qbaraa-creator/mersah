@@ -11,7 +11,7 @@ const BACKUP_VERIFICATION_REMINDER_DAYS = 90;
 const PERSISTENCE_RETRY_DAYS = 30;
 const MAX_TEXT_LENGTH = 5000;
 const MAX_SHORT_TEXT = 80;
-const MAX_DIRECTION_LENGTH = 180;
+const MAX_DIRECTION_LENGTH = 500;
 const MAX_ID_LENGTH = 180;
 const MAX_IMPORT_BYTES = 80 * 1024 * 1024;
 const MAX_IMPORT_TOTAL_BYTES = 400 * 1024 * 1024;
@@ -141,6 +141,7 @@ const hasOwn = (object, key) => Object.prototype.hasOwnProperty.call(object, key
 const elements = {
   settingsButton: $('#settingsButton'),
   brandToday: $('#brandToday'),
+  yearProgress: $('#yearProgress'),
   topProgress: $('#topProgress'),
   directionButton: $('#directionButton'),
   directionDisplay: $('#directionDisplay'),
@@ -188,6 +189,7 @@ const elements = {
   selectedDayTitle: $('#selectedDayTitle'),
   selectedDayMeta: $('#selectedDayMeta'),
   selectedDayDirection: $('#selectedDayDirection'),
+  selectedDayDirectionDisplay: $('#selectedDayDirectionDisplay'),
   selectedDayDirectionStatus: $('#selectedDayDirectionStatus'),
   editDayButton: $('#editDayButton'),
   selectedDayContent: $('#selectedDayContent'),
@@ -253,6 +255,9 @@ const elements = {
   runMigrationButton: $('#runMigrationButton'),
   skipMigrationButton: $('#skipMigrationButton'),
   trashStatus: $('#trashStatus'),
+  trashDialog: $('#trashDialog'),
+  trashList: $('#trashList'),
+  viewTrashButton: $('#viewTrashButton'),
   restoreTrashButton: $('#restoreTrashButton'),
   emptyTrashButton: $('#emptyTrashButton'),
   toast: $('#toast'),
@@ -920,6 +925,7 @@ function renderAll() {
   renderStaticOptions();
   renderSettingsState();
   renderCurrentView();
+  if (elements.trashDialog.open) renderTrashDialog();
   if (elements.entryDetailsDialog.open && activeDetailsEntryId) {
     renderEntryDetails(activeDetailsEntryId);
   }
@@ -934,7 +940,20 @@ function renderCurrentView() {
 
 function renderHeaderDate() {
   const today = dateKey();
-  elements.brandToday.textContent = `دفتر اليوم: ${dayName(today)} ${formatDayMonth(today)} · ${formatDayMonthNumeric(today)}`;
+  const progress = yearProgressFor(today);
+  elements.brandToday.textContent = `${dayName(today)} ${formatDayMonth(today)} · ${formatDayMonthNumeric(today)}`;
+  elements.yearProgress.textContent = `اليوم ${progress.ordinal} من ${progress.total} · بقي ${progress.remaining}`;
+}
+
+function yearProgressFor(key) {
+  const date = dateFromKey(key);
+  const year = date.getFullYear();
+  const start = Date.UTC(year, 0, 1);
+  const nextYear = Date.UTC(year + 1, 0, 1);
+  const current = Date.UTC(year, date.getMonth(), date.getDate());
+  const total = Math.round((nextYear - start) / DAY);
+  const ordinal = Math.floor((current - start) / DAY) + 1;
+  return { ordinal, total, remaining: total - ordinal };
 }
 
 function refreshForNewDay() {
@@ -1527,14 +1546,17 @@ function renderSelectedDay() {
   const isToday = key === dateKey();
   elements.selectedDayTitle.textContent = `${dayName(key)} · ${formatDateKey(key)}`;
   elements.selectedDayMeta.textContent = isToday ? 'اليوم الحالي' : 'سجل يوم سابق';
-  elements.selectedDayDirection.readOnly = !isToday && !selectedDayEditUnlocked;
+  const archivedDirectionLocked = !isToday && !selectedDayEditUnlocked;
+  elements.selectedDayDirection.readOnly = archivedDirectionLocked;
+  elements.selectedDayDirection.hidden = archivedDirectionLocked;
+  elements.selectedDayDirectionDisplay.hidden = !archivedDirectionLocked;
+  elements.selectedDayDirectionDisplay.textContent = record?.direction || 'لا يوجد توجّه محفوظ لهذا اليوم.';
   elements.editDayButton.hidden = isToday || selectedDayEditUnlocked;
   if (document.activeElement !== elements.selectedDayDirection) {
     elements.selectedDayDirection.value = record?.direction || '';
   }
-  elements.selectedDayDirectionStatus.textContent = elements.selectedDayDirection.readOnly
-    ? 'لتحرير يوم سابق اضغط «تحرير اليوم».'
-    : 'يحفظ تلقائيًا.';
+  elements.selectedDayDirectionStatus.hidden = archivedDirectionLocked;
+  elements.selectedDayDirectionStatus.textContent = archivedDirectionLocked ? '' : 'يحفظ تلقائيًا.';
 
   const topWrap = document.createElement('section');
   topWrap.className = 'stack';
@@ -1675,6 +1697,7 @@ function renderEntryDetails(entryId) {
   elements.entryDetailsCreated.textContent = `${formatDateKey(entryDate(entry))} · ${formatEntryTime(entry)}`;
   elements.entryDetailsAge.textContent = `⏳ ${ageDaysLabel(entryAgeDays(entry))}`;
   elements.entryDetailsPath.textContent = `${PATH_ICONS[entry.path] || '✦'} ${PATHS[entry.path] || entry.path}`;
+  elements.entryDetailsEdit.hidden = entry.status === 'trash';
 
   const attachmentRow = createAttachmentRow(entry.id);
   if (attachmentRow) {
@@ -2609,7 +2632,7 @@ async function cleanOldTrash() {
 }
 
 function renderSettingsState() {
-  const trash = entries.filter(entry => entry.status === 'trash');
+  const trash = trashEntries();
   elements.trashStatus.textContent = trash.length
     ? `${trash.length} عناصر؛ تُحذف نهائيًا بعد ${TRASH_RETENTION_DAYS} أيام.`
     : 'لا توجد عناصر محذوفة.';
@@ -2617,8 +2640,90 @@ function renderSettingsState() {
   elements.emptyTrashButton.disabled = !trash.length;
 }
 
+function trashEntries() {
+  return entries
+    .filter(entry => entry.status === 'trash')
+    .sort((a, b) => new Date(b.deletedAt || b.updatedAt) - new Date(a.deletedAt || a.updatedAt));
+}
+
+function trashDaysRemaining(entry) {
+  const deletedAt = validIso(entry.deletedAt) || validIso(entry.updatedAt);
+  if (!deletedAt) return TRASH_RETENTION_DAYS;
+  const elapsedDays = Math.max(0, Math.floor((Date.now() - new Date(deletedAt).getTime()) / DAY));
+  return Math.max(0, TRASH_RETENTION_DAYS - elapsedDays);
+}
+
+function renderTrashDialog() {
+  const trash = trashEntries();
+  if (!trash.length) {
+    elements.trashList.replaceChildren(emptyNode('لا توجد عناصر محذوفة خلال آخر سبعة أيام.'));
+    return;
+  }
+
+  const rows = trash.map(entry => {
+    const row = document.createElement('article');
+    row.className = 'trash-entry';
+
+    const main = document.createElement('button');
+    main.type = 'button';
+    main.className = 'trash-entry-main';
+    main.setAttribute('aria-label', 'عرض تفاصيل الالتقاطة المحذوفة');
+    main.addEventListener('click', () => openEntryDetails(entry.id));
+
+    const text = document.createElement('span');
+    text.className = 'trash-entry-text';
+    text.dir = 'auto';
+    text.textContent = entry.text || attachmentOnlyLabel(entry);
+
+    const deletedAt = validIso(entry.deletedAt) || validIso(entry.updatedAt);
+    const remaining = trashDaysRemaining(entry);
+    const meta = document.createElement('span');
+    meta.className = 'trash-entry-meta';
+    meta.textContent = deletedAt
+      ? `حُذفت ${formatDate(deletedAt)} · ${formatTime(deletedAt)} · بقي ${remaining} ${remaining === 1 ? 'يوم' : 'أيام'}`
+      : `بقي ${remaining} أيام`;
+    main.append(text, meta);
+
+    const actions = document.createElement('div');
+    actions.className = 'trash-entry-actions';
+    actions.append(
+      actionButton('استعادة', () => restoreTrashEntry(entry.id), 'primary', '↻'),
+      actionButton('حذف نهائي', () => deleteTrashEntry(entry.id), 'danger', '⌫')
+    );
+    row.append(main, actions);
+    return row;
+  });
+  elements.trashList.replaceChildren(...rows);
+}
+
+function openTrashDialog() {
+  renderTrashDialog();
+  if (!elements.trashDialog.open) elements.trashDialog.showModal();
+}
+
+async function restoreTrashEntry(entryId) {
+  const restored = await updateEntry(entryId, { status: 'open', deletedAt: null });
+  if (restored) showToast('تمت استعادة الالتقاطة.');
+}
+
+async function deleteTrashEntry(entryId) {
+  const entry = entries.find(item => item.id === entryId && item.status === 'trash');
+  if (!entry) return;
+  const ok = await askConfirm({
+    title: 'حذف نهائي',
+    message: 'سيُحذف هذا الإدخال ومرفقاته نهائيًا. لا يمكن التراجع.',
+    preview: entry.text || attachmentOnlyLabel(entry),
+    accept: 'حذف نهائيًا'
+  });
+  if (!ok) return;
+  await deleteEntryCompletely(entry.id);
+  await refreshData();
+  showToast('تم الحذف نهائيًا.');
+}
+
 async function restoreTrash() {
-  const trash = entries.filter(entry => entry.status === 'trash');
+  const trash = trashEntries();
+  if (!trash.length) return;
   await putMany('entries', trash.map(entry => buildUpdatedEntry(entry, { status: 'open' })));
   await refreshData();
   showToast(`تمت استعادة ${trash.length} عناصر.`);
@@ -4058,13 +4163,14 @@ function bindEvents() {
   elements.importInput.addEventListener('change', () => importJsonFiles(elements.importInput.files));
   elements.runMigrationButton.addEventListener('click', () => runLegacyMigration());
   elements.skipMigrationButton.addEventListener('click', skipMigration);
+  elements.viewTrashButton.addEventListener('click', openTrashDialog);
   elements.restoreTrashButton.addEventListener('click', restoreTrash);
   elements.emptyTrashButton.addEventListener('click', emptyTrash);
   $$('[data-close-dialog]').forEach(button => button.addEventListener('click', () => {
     document.getElementById(button.dataset.closeDialog)?.close();
   }));
   [elements.topTaskDialog, elements.captureDialog, elements.directionDialog, elements.editDialog,
-    elements.entryDetailsDialog, elements.settingsDialog].forEach(dialog => {
+    elements.entryDetailsDialog, elements.trashDialog, elements.settingsDialog].forEach(dialog => {
     dialog.addEventListener('click', event => {
       if (event.target === dialog) dialog.close();
     });

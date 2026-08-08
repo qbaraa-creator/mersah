@@ -269,6 +269,10 @@
       color: var(--color-muted);
       line-height: 1.55;
     }
+    .brand .year-progress {
+      font-size: 12px;
+      font-variant-numeric: tabular-nums;
+    }
 
     /* ── العروض ── */
 
@@ -319,9 +323,10 @@
 
     .today-focus-line {
       display: flex;
-      align-items: center;
+      align-items: flex-start;
       gap: var(--space-2);
     }
+    .today-focus-line .top-progress-dots { margin-top: 17px; }
 
     .top-progress-dots { display: flex; gap: 6px; flex: none; }
     .top-progress-dot {
@@ -348,7 +353,7 @@
       cursor: pointer;
     }
     .direction-summary-copy {
-      display: flex; align-items: baseline; gap: 8px;
+      display: grid; gap: 3px;
       min-width: 0; flex: 1;
     }
     .direction-summary-label {
@@ -358,7 +363,9 @@
     .direction-compass { font-size: 16px; }
     .direction-summary-value {
       font-size: 17px; font-weight: 600;
-      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+      line-height: 1.65;
+      white-space: pre-wrap;
+      overflow-wrap: anywhere;
       flex: 1; min-width: 0;
     }
     .direction-summary-arrow { color: var(--color-accent-ink); font-size: 21px; flex: none; }
@@ -600,7 +607,7 @@
       font-weight: 600;
     }
     .path-menu > summary::-webkit-details-marker { display: none; }
-    .path-menu-icon { font-size: 22px; line-height: 1; }
+    .path-menu-icon { font-size: 26px; line-height: 1; }
     .path-menu > summary::after { content: '‹'; font-size: 15px; }
     .path-menu[open] > summary { background: color-mix(in srgb, var(--color-text) 7%, transparent); }
     .path-menu-options {
@@ -621,7 +628,7 @@
       min-height: var(--tap); display: flex; align-items: center; gap: 9px;
     }
     .path-option-icon {
-      width: 22px; text-align: center; font-size: 20px; line-height: 1;
+      width: 26px; text-align: center; font-size: 24px; line-height: 1;
       color: var(--path-color, var(--color-accent-ink));
     }
     .path-menu-option:hover { background: color-mix(in srgb, var(--color-text) 8%, transparent); }
@@ -697,7 +704,7 @@
       font-size: 11px;
     }
     .path-backlog-name { display: inline-flex; align-items: center; gap: 5px; font-weight: 600; }
-    .path-backlog-name span:first-child { color: var(--path-color); font-size: 15px; }
+    .path-backlog-name span:first-child { color: var(--path-color); font-size: 19px; }
     .path-backlog-track {
       height: 6px;
       overflow: hidden;
@@ -787,7 +794,7 @@
     .entries-path-button .count { color: inherit; opacity: .7; }
     .entries-path-name { display: inline-flex; align-items: center; gap: 4px; }
     .entries-path-icon {
-      font-size: 20px; line-height: 1;
+      font-size: 24px; line-height: 1;
       color: var(--path-color, currentColor);
     }
     .entries-path-button.active {
@@ -895,6 +902,15 @@
       font-size: 20px;
     }
     .archive-summary { font-size: 14px; color: var(--color-muted); margin-bottom: var(--space-2); }
+    .archived-direction {
+      margin: 0;
+      padding-block: 10px;
+      border-block: 1px solid var(--color-hairline);
+      font-size: 16px;
+      line-height: 1.75;
+      white-space: pre-wrap;
+      overflow-wrap: anywhere;
+    }
     .two-col { display: grid; gap: var(--space-4); align-items: start; }
     .two-col > .panel + .panel { margin-top: 0; }
 
@@ -1108,7 +1124,7 @@
     }
     dialog::backdrop { background: color-mix(in srgb, #2d2b2b 50%, transparent); }
     dialog.capture-sheet, dialog.edit-sheet, dialog.confirm-sheet, dialog.top-task-dialog,
-    dialog.entry-details-sheet {
+    dialog.entry-details-sheet, dialog.trash-sheet {
       width: 100%; max-width: 100%;
       margin: 0 0 0 auto;
       inset-block-end: 0; inset-block-start: auto;
@@ -1116,7 +1132,8 @@
       border-radius: var(--radius-lg) var(--radius-lg) 0 0;
     }
     dialog.capture-sheet .dialog-inner, dialog.edit-sheet .dialog-inner, dialog.confirm-sheet .dialog-inner,
-    dialog.top-task-dialog .dialog-inner, dialog.entry-details-sheet .dialog-inner {
+    dialog.top-task-dialog .dialog-inner, dialog.entry-details-sheet .dialog-inner,
+    dialog.trash-sheet .dialog-inner {
       padding: 18px 18px calc(18px + var(--safe-bottom));
     }
     .dialog-inner { max-height: 90dvh; overflow-y: auto; padding: var(--space-4); }
@@ -1197,6 +1214,42 @@
       font-size: 12px;
       font-variant-numeric: tabular-nums;
     }
+    .trash-sheet .tiny-note { margin: -6px 0 2px; }
+    .trash-list { display: grid; }
+    .trash-entry {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      align-items: center;
+      gap: 6px;
+      padding-block: 8px;
+      border-bottom: 1px solid var(--color-hairline);
+    }
+    .trash-entry:last-child { border-bottom: 0; }
+    .trash-entry-main {
+      all: unset;
+      box-sizing: border-box;
+      min-width: 0;
+      min-height: var(--tap);
+      display: grid;
+      align-content: center;
+      gap: 3px;
+      padding: 5px 2px;
+      cursor: pointer;
+    }
+    .trash-entry-text {
+      min-width: 0;
+      font-size: 16px;
+      font-weight: 600;
+      line-height: 1.6;
+      overflow-wrap: anywhere;
+    }
+    .trash-entry-meta {
+      color: var(--color-muted);
+      font-size: 12px;
+      line-height: 1.55;
+      font-variant-numeric: tabular-nums;
+    }
+    .trash-entry-actions { display: flex; align-items: center; gap: 2px; }
     .options-body { display: grid; gap: 6px; padding: 0 12px 12px; }
     details.options {
       border-radius: var(--radius-md);
@@ -1346,7 +1399,8 @@
       <div class="brand">
         <div>
           <h1>مرساة</h1>
-          <p id="brandToday">دفتر اليوم</p>
+          <p id="brandToday">اليوم</p>
+          <p class="year-progress" id="yearProgress"></p>
         </div>
       </div>
     </header>
@@ -1483,11 +1537,12 @@
                 <h2 id="selectedDayTitle">تفاصيل اليوم</h2>
                 <p id="selectedDayMeta"></p>
               </div>
-              <button class="quiet-btn small-btn" id="editDayButton">تحرير اليوم</button>
+              <button class="quiet-btn small-btn" id="editDayButton">تعديل التوجّه</button>
             </div>
             <div class="form-group">
               <label for="selectedDayDirection">توجّه اليوم</label>
-              <textarea class="field direction-field" id="selectedDayDirection" maxlength="180" dir="auto"></textarea>
+              <p class="archived-direction" id="selectedDayDirectionDisplay" dir="auto" hidden></p>
+              <textarea class="field direction-field" id="selectedDayDirection" maxlength="500" rows="6" dir="auto"></textarea>
               <span class="tiny-note" id="selectedDayDirectionStatus"></span>
             </div>
             <div id="selectedDayContent" class="stack"></div>
@@ -1563,7 +1618,7 @@
       <form id="directionForm" class="stack">
         <div class="form-group">
           <label for="directionEditor">النص</label>
-          <textarea class="field direction-field" id="directionEditor" maxlength="180" rows="4" dir="auto" placeholder="جملة واحدة تكفي لتوجيه اليوم."></textarea>
+          <textarea class="field direction-field" id="directionEditor" maxlength="500" rows="6" dir="auto" placeholder="اكتب توجّه اليوم…"></textarea>
         </div>
         <div class="dialog-actions">
           <button type="button" class="quiet-btn" data-close-dialog="directionDialog">إلغاء</button>
@@ -1652,6 +1707,17 @@
       <div class="dialog-actions">
         <button class="secondary-btn" id="entryDetailsEdit" type="button">تحرير</button>
       </div>
+    </div>
+  </dialog>
+
+  <dialog class="trash-sheet" id="trashDialog">
+    <div class="dialog-inner stack">
+      <div class="dialog-head">
+        <h2>المحذوفات</h2>
+        <button class="dialog-close" data-close-dialog="trashDialog" aria-label="إغلاق">×</button>
+      </div>
+      <p class="tiny-note">تُحذف العناصر ومرفقاتها نهائيًا بعد سبعة أيام.</p>
+      <div class="trash-list" id="trashList"></div>
     </div>
   </dialog>
 
@@ -1749,6 +1815,7 @@
           <h3>المحذوفات</h3>
           <p id="trashStatus">لا توجد عناصر محذوفة.</p>
           <div class="settings-actions">
+            <button class="secondary-btn small-btn" id="viewTrashButton">عرض المحذوفات</button>
             <button class="quiet-btn small-btn" id="restoreTrashButton">استعادة الكل</button>
             <button class="danger-btn small-btn" id="emptyTrashButton">إفراغ الآن</button>
           </div>

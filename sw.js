@@ -4,7 +4,7 @@
 // index.html أو app.js أو الأيقونات. هذا هو المُشغّل الوحيد للتحديث؛
 // بدونه يبقى المتصفح يخدم النسخة المخزّنة.
 const CACHE_PREFIX = 'mersah-static-';
-const CACHE_NAME = `${CACHE_PREFIX}v63`;
+const CACHE_NAME = `${CACHE_PREFIX}v64`;
 const SHELL_DOCUMENT = './index.html';
 const CORE_SHELL = [
   './',
