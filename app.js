@@ -18,8 +18,9 @@ const MAX_IMPORT_TOTAL_BYTES = 400 * 1024 * 1024;
 const MAX_IMPORT_ENTRIES = 200000;
 const MAX_IMPORT_ATTACHMENTS = 200000;
 const MAX_PATH_LOG_ENTRIES = 100000;
+const MAX_ENTRY_EVENT_LOG_ENTRIES = 100000;
 const HEATMAP_DAYS = 90;
-const BACKUP_SCHEMA_VERSION = 3;
+const BACKUP_SCHEMA_VERSION = 4;
 const MAX_ATTACHMENT_BYTES = 20 * 1024 * 1024;
 const MAX_IMAGE_SOURCE_BYTES = 50 * 1024 * 1024;
 const MAX_ATTACHMENTS_PER_ENTRY = 30;
@@ -28,6 +29,8 @@ const JPEG_QUALITY = 0.82;
 const MAX_FUTURE_DRIFT_MS = DAY;
 const ENTRY_PAGE_SIZE = 60;
 const EXPORT_PART_RAW_BYTES = 12 * 1024 * 1024;
+const THEME_COLORS = Object.freeze({ light: '#f3f2f2', dark: '#1b1a1a' });
+const systemDarkTheme = window.matchMedia('(prefers-color-scheme: dark)');
 
 const ENTRY_TYPES = Object.freeze({
   task: 'مهمة',
@@ -74,6 +77,18 @@ const STATUSES = Object.freeze({
   trash: 'محذوف'
 });
 
+const ENTRY_EVENT_TYPES = new Set([
+  'created',
+  'path_changed',
+  'status_changed',
+  'text_updated',
+  'due_date_changed',
+  'top_added',
+  'top_removed',
+  'attachments_added',
+  'attachments_removed'
+]);
+
 const V0_STATE_MAP = {
   inbox: ['untriaged', 'open'],
   week: ['do', 'open'],
@@ -108,6 +123,7 @@ let editRemovedAttachmentIds = new Set();
 let attachmentUrlCache = new Map();
 let activeViewerAttachment = null;
 let activeViewerTemporaryUrl = null;
+let activeDetailsEntryId = null;
 let observedDayKey = dateKey();
 let toastTimer;
 let selectedDirectionTimer;
@@ -124,8 +140,7 @@ const hasOwn = (object, key) => Object.prototype.hasOwnProperty.call(object, key
 
 const elements = {
   settingsButton: $('#settingsButton'),
-  todayLabel: $('#todayLabel'),
-  todayDate: $('#todayDate'),
+  brandToday: $('#brandToday'),
   topProgress: $('#topProgress'),
   directionButton: $('#directionButton'),
   directionDisplay: $('#directionDisplay'),
@@ -133,6 +148,8 @@ const elements = {
   directionForm: $('#directionForm'),
   directionEditor: $('#directionEditor'),
   topTasksList: $('#topTasksList'),
+  openTopTaskDialog: $('#openTopTaskDialog'),
+  topTaskDialog: $('#topTaskDialog'),
   quickTaskInput: $('#quickTaskInput'),
   addTopTaskButton: $('#addTopTaskButton'),
   topCandidates: $('#topCandidates'),
@@ -202,6 +219,14 @@ const elements = {
   attachmentViewerDownload: $('#attachmentViewerDownload'),
   attachmentViewerStage: $('#attachmentViewerStage'),
   attachmentViewerImage: $('#attachmentViewerImage'),
+  entryDetailsDialog: $('#entryDetailsDialog'),
+  entryDetailsText: $('#entryDetailsText'),
+  entryDetailsCreated: $('#entryDetailsCreated'),
+  entryDetailsAge: $('#entryDetailsAge'),
+  entryDetailsPath: $('#entryDetailsPath'),
+  entryDetailsAttachments: $('#entryDetailsAttachments'),
+  entryDetailsEvents: $('#entryDetailsEvents'),
+  entryDetailsEdit: $('#entryDetailsEdit'),
   confirmDialog: $('#confirmDialog'),
   confirmTitle: $('#confirmTitle'),
   confirmText: $('#confirmText'),
@@ -209,6 +234,9 @@ const elements = {
   confirmCancel: $('#confirmCancel'),
   confirmAccept: $('#confirmAccept'),
   settingsDialog: $('#settingsDialog'),
+  themeColor: $('#themeColor'),
+  themeLightButton: $('#themeLightButton'),
+  themeDarkButton: $('#themeDarkButton'),
   storageStatus: $('#storageStatus'),
   storageMeter: $('#storageMeter'),
   storageMeterFill: $('#storageMeterFill'),
@@ -356,6 +384,39 @@ async function putSetting(key, value) {
   await putRecord('settings', record);
   settings = [record, ...settings.filter(item => item.key !== key)];
   settingsMap.set(key, value);
+}
+
+function validTheme(value) {
+  return value === 'light' || value === 'dark' ? value : null;
+}
+
+function effectiveTheme(preference = validTheme(settingsMap.get('theme'))) {
+  return preference || (systemDarkTheme.matches ? 'dark' : 'light');
+}
+
+function renderThemeControl(theme = effectiveTheme()) {
+  elements.themeLightButton?.setAttribute('aria-pressed', String(theme === 'light'));
+  elements.themeDarkButton?.setAttribute('aria-pressed', String(theme === 'dark'));
+}
+
+function applyTheme(preference = validTheme(settingsMap.get('theme'))) {
+  const theme = effectiveTheme(preference);
+  document.documentElement.dataset.theme = theme;
+  if (elements.themeColor) elements.themeColor.content = THEME_COLORS[theme];
+  renderThemeControl(theme);
+}
+
+async function selectTheme(theme) {
+  const nextTheme = validTheme(theme);
+  if (!nextTheme) return;
+  const previousTheme = validTheme(settingsMap.get('theme'));
+  applyTheme(nextTheme);
+  try {
+    await putSetting('theme', nextTheme);
+  } catch (error) {
+    applyTheme(previousTheme);
+    reportStorageFailure(error, 'حفظ المظهر');
+  }
 }
 
 function uid(prefix = 'id') {
@@ -562,12 +623,6 @@ function relativeDayLabel(key) {
   return formatDateKey(target);
 }
 
-function cardTimestamp(entry) {
-  const time = formatEntryTime(entry);
-  if (currentView === 'today' || currentView === 'days') return time;
-  return `${time} · ${relativeDayLabel(entryDate(entry))}`;
-}
-
 function dayName(key) {
   return new Intl.DateTimeFormat('ar-SA', { weekday: 'long' }).format(dateFromKey(key));
 }
@@ -633,8 +688,101 @@ function createPathEvent(path, at = nowIso(), stamp = localCreationStamp(at)) {
   };
 }
 
+function createEntryEvent(type, at = nowIso(), details = {}, stamp = localCreationStamp(at)) {
+  return {
+    id: uid('event'),
+    type: ENTRY_EVENT_TYPES.has(type) ? type : 'text_updated',
+    at,
+    localDate: stamp?.date || dateKey(at),
+    localHour: Number.isInteger(stamp?.hour) ? stamp.hour : new Date(at).getHours(),
+    localMinute: Number.isInteger(stamp?.minute) ? stamp.minute : new Date(at).getMinutes(),
+    timeZone: stamp?.timeZone || null,
+    utcOffsetMinutes: Number.isInteger(stamp?.utcOffsetMinutes) ? stamp.utcOffsetMinutes : null,
+    ...details
+  };
+}
+
+function storedEntryEventLog(entry) {
+  return Array.isArray(entry?.eventLog) ? entry.eventLog : [];
+}
+
+function derivedLegacyEventLog(entry) {
+  const createdAt = validIso(entry?.createdAt) || nowIso();
+  const updatedAt = validIso(entry?.updatedAt) || createdAt;
+  const createdStamp = entry?.createdLocal || localCreationStamp(createdAt);
+  const pathEvents = pathLogFor(entry);
+  const initialPath = pathEvents[0]?.path;
+  const events = [createEntryEvent('created', createdAt, initialPath ? { to: initialPath } : {}, createdStamp)];
+  for (let index = 1; index < pathEvents.length; index += 1) {
+    const previous = pathEvents[index - 1];
+    const current = pathEvents[index];
+    events.push(createEntryEvent('path_changed', current.at, {
+      from: previous.path,
+      to: current.path
+    }, {
+      date: current.localDate,
+      hour: localPartsAtOffset(current.at, current.utcOffsetMinutes ?? -new Date(current.at).getTimezoneOffset()).hour,
+      minute: localPartsAtOffset(current.at, current.utcOffsetMinutes ?? -new Date(current.at).getTimezoneOffset()).minute,
+      timeZone: current.timeZone,
+      utcOffsetMinutes: current.utcOffsetMinutes
+    }));
+  }
+  attachmentsFor(entry.id).forEach(attachment => {
+    const attachmentAt = validIso(attachment.createdAt) || createdAt;
+    const at = new Date(attachmentAt) < new Date(createdAt)
+      ? createdAt
+      : new Date(attachmentAt) > new Date(updatedAt) ? updatedAt : attachmentAt;
+    events.push(createEntryEvent('attachments_added', at, {
+      count: 1,
+      names: [safeAttachmentName(attachment.name)]
+    }));
+  });
+  return events.sort((a, b) => new Date(a.at) - new Date(b.at));
+}
+
+function entryEventLog(entry) {
+  const stored = storedEntryEventLog(entry);
+  return stored.length ? stored : derivedLegacyEventLog(entry);
+}
+
+function appendEventsToEntry(entry, events, baseEntry = entry) {
+  if (!events.length) return entry;
+  const combined = [...entryEventLog(baseEntry), ...events]
+    .sort((a, b) => new Date(a.at) - new Date(b.at));
+  const limited = combined.length <= MAX_ENTRY_EVENT_LOG_ENTRIES
+    ? combined
+    : [combined[0], ...combined.slice(-(MAX_ENTRY_EVENT_LOG_ENTRIES - 1))];
+  return { ...entry, eventLog: limited };
+}
+
+function entryChangeEvents(current, updated, at) {
+  const events = [];
+  if (updated.path !== current.path) {
+    events.push(createEntryEvent('path_changed', at, { from: current.path, to: updated.path }));
+  }
+  if (updated.status !== current.status) {
+    events.push(createEntryEvent('status_changed', at, { from: current.status, to: updated.status }));
+  }
+  if (updated.text !== current.text) events.push(createEntryEvent('text_updated', at));
+  if (updated.dueDate !== current.dueDate) {
+    events.push(createEntryEvent('due_date_changed', at, { from: current.dueDate, to: updated.dueDate }));
+  }
+  if (updated.topTodayDate !== current.topTodayDate) {
+    events.push(createEntryEvent(updated.topTodayDate ? 'top_added' : 'top_removed', at, {
+      from: current.topTodayDate,
+      to: updated.topTodayDate
+    }));
+  }
+  return events;
+}
+
 function pathLogFor(entry) {
   return Array.isArray(entry?.pathLog) ? entry.pathLog : [];
+}
+
+function limitPathLog(log) {
+  if (log.length <= MAX_PATH_LOG_ENTRIES) return log;
+  return [log[0], ...log.slice(-(MAX_PATH_LOG_ENTRIES - 1))];
 }
 
 function currentPathEvent(entry) {
@@ -762,6 +910,7 @@ async function refreshData() {
   dailyRecords = dailyRows.sort((a, b) => b.date.localeCompare(a.date));
   settings = settingRows;
   settingsMap = new Map(settingRows.map(setting => [setting.key, setting.value]));
+  applyTheme();
   rebuildDataIndexes();
   analysisDataRevision += 1;
   renderAll();
@@ -771,12 +920,21 @@ function renderAll() {
   renderStaticOptions();
   renderSettingsState();
   renderCurrentView();
+  if (elements.entryDetailsDialog.open && activeDetailsEntryId) {
+    renderEntryDetails(activeDetailsEntryId);
+  }
 }
 
 function renderCurrentView() {
+  renderHeaderDate();
   if (currentView === 'entries') renderEntries();
   else if (currentView === 'days') renderDays();
   else renderToday();
+}
+
+function renderHeaderDate() {
+  const today = dateKey();
+  elements.brandToday.textContent = `دفتر اليوم: ${dayName(today)} ${formatDayMonth(today)} · ${formatDayMonthNumeric(today)}`;
 }
 
 function refreshForNewDay() {
@@ -801,11 +959,11 @@ function renderToday() {
   const today = dateKey();
   const record = dailyRecordFor(today);
   const top = topEntriesFor(today);
-  elements.todayLabel.textContent = dayName(today);
-  elements.todayDate.textContent = `${formatDayMonth(today)} · ${formatDayMonthNumeric(today)}`;
   renderTopProgress(top);
   elements.directionDisplay.textContent = record?.direction || 'حدد توجّه اليوم';
   elements.addTopTaskButton.disabled = top.length >= 3;
+  elements.openTopTaskDialog.hidden = top.length >= 3;
+  if (top.length >= 3 && elements.topTaskDialog.open) elements.topTaskDialog.close();
   renderTopTasks(today, top);
   renderTodayTimeline(today);
 }
@@ -825,7 +983,10 @@ function renderTopProgress(top) {
 
 function renderTopTasks(dayKey, top) {
   if (!top.length) {
-    elements.topTasksList.replaceChildren(emptyNode('لا توجد مهام عليا بعد. أضف مهمة من مسار «نفّذ».'));
+    const empty = document.createElement('div');
+    empty.className = 'top-empty';
+    empty.textContent = 'لا مهام';
+    elements.topTasksList.replaceChildren(empty);
   } else {
     elements.topTasksList.replaceChildren(...top.map(entry => createTopTaskElement(entry, dayKey)));
   }
@@ -840,19 +1001,21 @@ function renderTopTasks(dayKey, top) {
     elements.topCandidates.replaceChildren(...candidates.map(entry => {
       const row = document.createElement('div');
       row.className = 'top-item';
-      const marker = document.createElement('span');
-      marker.className = 'chip';
-      marker.textContent = formatDate(entry.createdAt);
       const title = document.createElement('p');
       title.className = 'entry-title';
       title.dir = 'auto';
       title.textContent = entry.text || 'إدخال بلا نص';
       const add = document.createElement('button');
-      add.className = 'secondary-btn small-btn';
-      add.textContent = 'إضافة';
+      add.className = 'action-link primary';
+      add.textContent = '+';
+      add.title = 'إضافة إلى أهم اليوم';
+      add.setAttribute('aria-label', 'إضافة إلى أهم اليوم');
       add.disabled = !canAddTop(dayKey);
-      add.addEventListener('click', () => setTopToday(entry.id, dayKey));
-      row.append(marker, title, add);
+      add.addEventListener('click', async () => {
+        await setTopToday(entry.id, dayKey);
+        if (elements.topTaskDialog.open) elements.topTaskDialog.close();
+      });
+      row.append(title, add);
       return row;
     }));
   }
@@ -1419,10 +1582,13 @@ function createEntryCard(entry) {
   article.className = `card entry-card path-${entry.path}`;
   article.dataset.entryId = entry.id;
 
-  const text = document.createElement('p');
-  text.className = 'entry-text';
+  const text = document.createElement('button');
+  text.type = 'button';
+  text.className = 'entry-text entry-open';
   text.dir = 'auto';
   text.textContent = entry.text || attachmentOnlyLabel(entry);
+  text.setAttribute('aria-label', `عرض تفاصيل الالتقاطة: ${entry.text || attachmentOnlyLabel(entry)}`);
+  text.addEventListener('click', () => openEntryDetails(entry.id));
 
   const heading = document.createElement('div');
   heading.className = 'entry-heading';
@@ -1430,7 +1596,6 @@ function createEntryCard(entry) {
 
   const meta = document.createElement('div');
   meta.className = 'meta';
-  meta.append(metaText(cardTimestamp(entry)));
   const age = chip(`⏳ ${ageDaysLabel(entryAgeDays(entry))}`, 'age-chip');
   age.title = 'العمر منذ إضافة الالتقاط';
   age.setAttribute('aria-label', `العمر منذ إضافة الالتقاط: ${ageDaysLabel(entryAgeDays(entry))}`);
@@ -1454,11 +1619,94 @@ function createEntryCard(entry) {
   return article;
 }
 
-function metaText(text) {
-  const span = document.createElement('span');
-  span.className = 'meta-text';
-  span.textContent = text;
-  return span;
+function entryEventDateTime(event) {
+  const key = validDateKey(event?.localDate) || dateKey(event?.at);
+  const hour = Number.isInteger(event?.localHour) ? event.localHour : new Date(event?.at).getHours();
+  const minute = Number.isInteger(event?.localMinute) ? event.localMinute : new Date(event?.at).getMinutes();
+  return `${formatDateKey(key)} · ${pad(hour)}:${pad(minute)}`;
+}
+
+function attachmentNamesLabel(event) {
+  const names = Array.isArray(event.names) ? event.names.filter(Boolean) : [];
+  if (!names.length) return '';
+  const visible = names.slice(0, 2).join('، ');
+  return names.length > 2 ? `${visible}، و${names.length - 2} أخرى` : visible;
+}
+
+function entryEventLabel(event) {
+  switch (event.type) {
+    case 'created':
+      return event.to && PATHS[event.to]
+        ? `أُنشئت في «${PATHS[event.to]}»`
+        : 'أُنشئت الالتقاطة';
+    case 'path_changed':
+      return `تغيّر المسار من «${PATHS[event.from] || event.from}» إلى «${PATHS[event.to] || event.to}»`;
+    case 'status_changed':
+      return `تغيّرت الحالة من «${STATUSES[event.from] || event.from}» إلى «${STATUSES[event.to] || event.to}»`;
+    case 'text_updated':
+      return 'عُدّل نص الالتقاطة';
+    case 'due_date_changed':
+      return event.to ? `حُدّد موعد التنفيذ: ${formatDateKey(event.to)}` : 'أُزيل موعد التنفيذ';
+    case 'top_added':
+      return `أُضيفت إلى أهم يوم ${formatDateKey(event.to)}`;
+    case 'top_removed':
+      return `أُزيلت من أهم يوم ${formatDateKey(event.from)}`;
+    case 'attachments_added': {
+      const names = attachmentNamesLabel(event);
+      return `أُضيف ${event.count === 1 ? 'مرفق' : `${event.count} مرفقات`}${names ? `: ${names}` : ''}`;
+    }
+    case 'attachments_removed': {
+      const names = attachmentNamesLabel(event);
+      return `أُزيل ${event.count === 1 ? 'مرفق' : `${event.count} مرفقات`}${names ? `: ${names}` : ''}`;
+    }
+    default:
+      return 'حُدّثت الالتقاطة';
+  }
+}
+
+function renderEntryDetails(entryId) {
+  const entry = entries.find(item => item.id === entryId);
+  if (!entry) {
+    elements.entryDetailsDialog.close();
+    return false;
+  }
+  activeDetailsEntryId = entry.id;
+  elements.entryDetailsText.textContent = entry.text || attachmentOnlyLabel(entry);
+  elements.entryDetailsCreated.textContent = `${formatDateKey(entryDate(entry))} · ${formatEntryTime(entry)}`;
+  elements.entryDetailsAge.textContent = `⏳ ${ageDaysLabel(entryAgeDays(entry))}`;
+  elements.entryDetailsPath.textContent = `${PATH_ICONS[entry.path] || '✦'} ${PATHS[entry.path] || entry.path}`;
+
+  const attachmentRow = createAttachmentRow(entry.id);
+  if (attachmentRow) {
+    const heading = document.createElement('h3');
+    heading.textContent = 'المرفقات';
+    elements.entryDetailsAttachments.replaceChildren(heading, attachmentRow);
+    elements.entryDetailsAttachments.hidden = false;
+  } else {
+    elements.entryDetailsAttachments.replaceChildren();
+    elements.entryDetailsAttachments.hidden = true;
+  }
+
+  const eventItems = entryEventLog(entry).slice().reverse().map(event => {
+    const item = document.createElement('li');
+    item.className = 'entry-event';
+    const label = document.createElement('span');
+    label.className = 'entry-event-label';
+    label.textContent = entryEventLabel(event);
+    const time = document.createElement('time');
+    time.className = 'entry-event-time';
+    time.dateTime = event.at;
+    time.textContent = entryEventDateTime(event);
+    item.append(label, time);
+    return item;
+  });
+  elements.entryDetailsEvents.replaceChildren(...eventItems);
+  return true;
+}
+
+function openEntryDetails(entryId) {
+  if (!renderEntryDetails(entryId)) return;
+  if (!elements.entryDetailsDialog.open) elements.entryDetailsDialog.showModal();
 }
 
 function chip(text, extraClass = '') {
@@ -1723,14 +1971,12 @@ function pruneAttachmentUrlCache() {
 
 function appendEntryActions(container, entry) {
   if (entry.status === 'open') {
-    if (entry.type === 'task' || entry.path === 'do') {
-      container.append(actionButton('إكمال', () => setEntryStatus(entry.id, 'done'), 'primary', '✓'));
-    }
-    if (entry.path === 'consider') {
-      container.append(actionButton('إغلاق', () => setEntryStatus(entry.id, 'closed'), '', '✓'));
-    }
     if (entry.path === 'waiting') {
       container.append(actionButton('عاد إليّ', () => updateEntry(entry.id, { path: 'do' }), 'primary', '↩'));
+    } else if (entry.type === 'task' || entry.path === 'do') {
+      container.append(actionButton('إكمال', () => setEntryStatus(entry.id, 'done'), 'primary', '✓'));
+    } else if (entry.path === 'consider') {
+      container.append(actionButton('إغلاق', () => setEntryStatus(entry.id, 'closed'), '', '✓'));
     }
   } else if (entry.status === 'done' || entry.status === 'closed') {
     container.append(actionButton('إعادة فتح', () => setEntryStatus(entry.id, 'open'), 'primary', '↻'));
@@ -1786,7 +2032,7 @@ async function createEntry(data, attachmentDrafts = []) {
     showToast('لا يمكن إضافة مهمة رابعة إلى أهم اليوم.');
     return null;
   }
-  const entry = {
+  let entry = {
     id: data.id || uid('entry'),
     text: clampString(data.text, MAX_TEXT_LENGTH),
     type: validType(data.type),
@@ -1818,6 +2064,17 @@ async function createEntry(data, attachmentDrafts = []) {
     blob: item.blob,
     createdAt: item.createdAt || now
   }));
+  const initialEvents = [createEntryEvent('created', createdAt, { to: path }, createdLocal)];
+  if (entry.topTodayDate) {
+    initialEvents.push(createEntryEvent('top_added', createdAt, { to: entry.topTodayDate }, createdLocal));
+  }
+  if (attachmentRows.length) {
+    initialEvents.push(createEntryEvent('attachments_added', createdAt, {
+      count: attachmentRows.length,
+      names: attachmentRows.map(attachment => attachment.name)
+    }, createdLocal));
+  }
+  entry = { ...entry, eventLog: initialEvents };
   const nextEntries = [entry, ...entries.filter(item => item.id !== entry.id)];
   const dailyRecord = entry.topTodayDate
     ? dailyTopRecordForEntries(entry.topTodayDate, nextEntries, now)
@@ -1855,10 +2112,10 @@ function buildUpdatedEntry(current, patch) {
   const path = patch.path ? validPath(patch.path) : current.path;
   const nextTopDate = patch.topTodayDate === undefined ? current.topTodayDate : validDateKey(patch.topTodayDate);
   const currentPathLog = pathLogFor(current);
-  const pathLog = path === current.path
+  const pathLog = limitPathLog(path === current.path
     ? currentPathLog
-    : [...currentPathLog, createPathEvent(path, now)];
-  return {
+    : [...currentPathLog, createPathEvent(path, now)]);
+  const updated = {
     ...current,
     ...patch,
     type: patch.type ? validType(patch.type) : current.type,
@@ -1875,6 +2132,7 @@ function buildUpdatedEntry(current, patch) {
     deletedAt: status === 'trash' ? (current.deletedAt || now) : null,
     updatedAt: now
   };
+  return appendEventsToEntry(updated, entryChangeEvents(current, updated, now), current);
 }
 
 async function persistEntryUpdate(current, updated, { addedAttachments = [], removedAttachmentIds = [] } = {}) {
@@ -1906,7 +2164,7 @@ async function setTopToday(id, day) {
   await updateEntry(id, patch);
 }
 
-// تأكيد بورقة سفلية بدل confirm() الأصلي: يتّسق مع الواجهة،
+// ورقة تأكيد سفلية تتّسق مع الواجهة،
 // ويعرض نص الإدخال حتى يرى المستخدم ما يحذفه قبل أن يؤكّد.
 function askConfirm({ title = 'تأكيد', message, preview = '', accept = 'حذف', danger = true }) {
   return new Promise(resolve => {
@@ -1982,6 +2240,7 @@ async function addQuickTopTask() {
     return;
   }
   elements.quickTaskInput.value = '';
+  if (elements.topTaskDialog.open) elements.topTaskDialog.close();
 }
 
 async function saveDailyDirection(day, value, statusElement) {
@@ -2289,7 +2548,7 @@ async function handleEditSubmit(event) {
     showToast('لا يمكن إضافة مهمة رابعة إلى أهم اليوم.');
     return;
   }
-  const updated = buildUpdatedEntry(current, {
+  let updated = buildUpdatedEntry(current, {
     text,
     path: elements.editPath.value,
     dueDate: elements.editDueDate.value,
@@ -2305,6 +2564,22 @@ async function handleEditSubmit(event) {
     blob: item.blob,
     createdAt: now
   }));
+  const currentAttachments = attachmentsFor(id);
+  const removedAttachments = currentAttachments.filter(item => editRemovedAttachmentIds.has(item.id));
+  const attachmentEvents = [];
+  if (addedAttachments.length) {
+    attachmentEvents.push(createEntryEvent('attachments_added', now, {
+      count: addedAttachments.length,
+      names: addedAttachments.map(attachment => attachment.name)
+    }));
+  }
+  if (removedAttachments.length) {
+    attachmentEvents.push(createEntryEvent('attachments_removed', now, {
+      count: removedAttachments.length,
+      names: removedAttachments.map(attachment => safeAttachmentName(attachment.name))
+    }));
+  }
+  updated = { ...appendEventsToEntry(updated, attachmentEvents), updatedAt: now };
   try {
     await persistEntryUpdate(current, updated, {
       addedAttachments,
@@ -2344,8 +2619,7 @@ function renderSettingsState() {
 
 async function restoreTrash() {
   const trash = entries.filter(entry => entry.status === 'trash');
-  const now = nowIso();
-  await putMany('entries', trash.map(entry => ({ ...entry, status: 'open', deletedAt: null, updatedAt: now })));
+  await putMany('entries', trash.map(entry => buildUpdatedEntry(entry, { status: 'open' })));
   await refreshData();
   showToast(`تمت استعادة ${trash.length} عناصر.`);
 }
@@ -2561,6 +2835,9 @@ async function buildBackupFiles(stamp) {
   const exportedAt = nowIso();
   const backupId = uid('backup');
   const partDescriptors = [];
+  const exportEntries = entries.map(entry => storedEntryEventLog(entry).length
+    ? entry
+    : { ...entry, eventLog: entryEventLog(entry) });
 
   for (let index = 0; index < total; index += 1) {
     const attachmentRows = [];
@@ -2573,7 +2850,7 @@ async function buildBackupFiles(stamp) {
       exportedAt,
       backupId,
       backupPart: { index: index + 1, total },
-      entries: index === 0 ? entries : [],
+      entries: index === 0 ? exportEntries : [],
       attachments: attachmentRows,
       daily: index === 0 ? dailyRecords : [],
       settings: index === 0 ? settings : []
@@ -2849,7 +3126,14 @@ async function importJsonFiles(fileList) {
     const integrityText = report.integrityVerified
       ? ' تم التحقق من سلامة البايتات ببصمات SHA-256.'
       : ' هذه نسخة قديمة بلا بصمات؛ اجتازت الفحص البنيوي فقط.';
-    if (!confirm(`دمج ${entryCount} إدخالًا و${attachmentCount} مرفقًا (${formatBytes(totalBytes)})${partsText}؟${integrityText} السجل الأحدث في updatedAt يفوز.`)) return;
+    const approved = await askConfirm({
+      title: 'استيراد نسخة احتياطية',
+      message: `سيُدمج ${entryCount} إدخالًا و${attachmentCount} مرفقًا (${formatBytes(totalBytes)})${partsText}. السجل الأحدث في updatedAt يفوز.`,
+      preview: integrityText.trim(),
+      accept: 'دمج النسخة',
+      danger: false
+    });
+    if (!approved) return;
     const importBatch = { entries: [], attachments: [], daily: [], settings: [] };
     for (const descriptor of ordered) {
       const batch = await normalizeImportPayload(descriptor.data, { verifyAttachmentIntegrity: false });
@@ -3159,6 +3443,7 @@ function normalizeV0Import(cards) {
       updatedAt,
       createdLocal: null,
       pathLog: [],
+      eventLog: [],
       completedAt: status === 'done' ? updatedAt : null,
       deletedAt: status === 'trash' ? (validIso(card?.deletedAt) || updatedAt) : null,
       context: clampString(card?.context, MAX_SHORT_TEXT),
@@ -3278,6 +3563,102 @@ function sanitizeImportedPathLog(value, currentPath, createdAt, updatedAt, label
   return log;
 }
 
+function sanitizeImportedEventLog(value, createdAt, updatedAt, label) {
+  if (value == null) return [];
+  if (!Array.isArray(value)) throw new Error(`${label}: سجل الأحداث ليس قائمة.`);
+  if (value.length > MAX_ENTRY_EVENT_LOG_ENTRIES) {
+    throw new Error(`${label}: سجل الأحداث يتجاوز الحد الآمن (${MAX_ENTRY_EVENT_LOG_ENTRIES}).`);
+  }
+  const createdTime = new Date(createdAt).getTime();
+  const updatedTime = new Date(updatedAt).getTime();
+  let previousTime = -Infinity;
+  return value.map((event, index) => {
+    const eventLabel = `${label}، الحدث ${index + 1}`;
+    if (!event || typeof event !== 'object' || Array.isArray(event)
+        || !ENTRY_EVENT_TYPES.has(event.type)) {
+      throw new Error(`${eventLabel}: النوع غير صالح.`);
+    }
+    const at = validIso(event.at);
+    if (!at) throw new Error(`${eventLabel}: الوقت غير صالح.`);
+    const timestamp = new Date(at).getTime();
+    if (timestamp < createdTime || timestamp > updatedTime) {
+      throw new Error(`${eventLabel}: الوقت خارج عمر الإدخال.`);
+    }
+    if (timestamp < previousTime) throw new Error(`${eventLabel}: ترتيب الأوقات غير تصاعدي.`);
+    previousTime = timestamp;
+
+    const localDate = event.localDate == null ? null : validDateKey(event.localDate);
+    const localHour = event.localHour == null ? null : Number(event.localHour);
+    const localMinute = event.localMinute == null ? null : Number(event.localMinute);
+    if (event.localDate != null && !localDate) throw new Error(`${eventLabel}: التاريخ المحلي غير صالح.`);
+    if ((localHour == null) !== (localMinute == null)
+        || (localHour != null && (!Number.isInteger(localHour) || localHour < 0 || localHour > 23
+          || !Number.isInteger(localMinute) || localMinute < 0 || localMinute > 59))) {
+      throw new Error(`${eventLabel}: الساعة المحلية غير صالحة.`);
+    }
+    const timeZone = sanitizeImportedTimeZone(event.timeZone, eventLabel);
+    const utcOffsetMinutes = sanitizeImportedOffset(event.utcOffsetMinutes, eventLabel);
+    if (utcOffsetMinutes != null && (localDate || localHour != null)) {
+      const expected = localPartsAtOffset(at, utcOffsetMinutes);
+      if ((localDate && expected.date !== localDate)
+          || (localHour != null && (expected.hour !== localHour || expected.minute !== localMinute))) {
+        throw new Error(`${eventLabel}: الوقت المحلي لا يطابق at وفرق التوقيت.`);
+      }
+    }
+
+    const sanitized = {
+      id: safeId(event.id, 'event'),
+      type: event.type,
+      at,
+      localDate,
+      localHour,
+      localMinute,
+      timeZone,
+      utcOffsetMinutes
+    };
+    if (event.type === 'created') {
+      if (event.to == null || event.to === '') sanitized.to = null;
+      else {
+        if (!hasOwn(PATHS, event.to)) throw new Error(`${eventLabel}: مسار الإنشاء غير صالح.`);
+        sanitized.to = event.to;
+      }
+    } else if (event.type === 'path_changed') {
+      if (!hasOwn(PATHS, event.from) || !hasOwn(PATHS, event.to) || event.from === event.to) {
+        throw new Error(`${eventLabel}: انتقال المسار غير صالح.`);
+      }
+      sanitized.from = event.from;
+      sanitized.to = event.to;
+    } else if (event.type === 'status_changed') {
+      if (!hasOwn(STATUSES, event.from) || !hasOwn(STATUSES, event.to) || event.from === event.to) {
+        throw new Error(`${eventLabel}: انتقال الحالة غير صالح.`);
+      }
+      sanitized.from = event.from;
+      sanitized.to = event.to;
+    } else if (event.type === 'due_date_changed' || event.type === 'top_added' || event.type === 'top_removed') {
+      for (const field of ['from', 'to']) {
+        if (event[field] == null || event[field] === '') {
+          sanitized[field] = null;
+        } else {
+          const key = validDateKey(event[field]);
+          if (!key) throw new Error(`${eventLabel}: التاريخ في ${field} غير صالح.`);
+          sanitized[field] = key;
+        }
+      }
+    } else if (event.type === 'attachments_added' || event.type === 'attachments_removed') {
+      const count = Number(event.count);
+      if (!Number.isInteger(count) || count < 1 || count > MAX_ATTACHMENTS_PER_ENTRY) {
+        throw new Error(`${eventLabel}: عدد المرفقات غير صالح.`);
+      }
+      if (!Array.isArray(event.names) || event.names.length !== count) {
+        throw new Error(`${eventLabel}: أسماء المرفقات لا تطابق عددها.`);
+      }
+      sanitized.count = count;
+      sanitized.names = event.names.map(name => safeAttachmentName(name));
+    }
+    return sanitized;
+  });
+}
+
 function sanitizeImportedEntry(entry, label = 'الإدخال') {
   const createdAt = validIso(entry?.createdAt) || nowIso();
   const updatedAt = validIso(entry?.updatedAt) || createdAt;
@@ -3285,6 +3666,19 @@ function sanitizeImportedEntry(entry, label = 'الإدخال') {
     throw new Error(`${label}: updatedAt يسبق createdAt.`);
   }
   const path = validPath(entry?.path);
+  const eventLog = sanitizeImportedEventLog(entry?.eventLog, createdAt, updatedAt, label);
+  if (eventLog.length) {
+    if (eventLog[0].type !== 'created'
+        || eventLog.filter(event => event.type === 'created').length !== 1) {
+      throw new Error(`${label}: سجل الأحداث يجب أن يبدأ بحدث إنشاء واحد.`);
+    }
+    const latestKnownPath = eventLog.slice().reverse().find(event =>
+      event.type === 'path_changed' || (event.type === 'created' && event.to)
+    );
+    if (latestKnownPath?.to && latestKnownPath.to !== path) {
+      throw new Error(`${label}: آخر مسار في سجل الأحداث لا يطابق المسار الحالي.`);
+    }
+  }
   return {
     id: safeId(entry?.id, 'entry'),
     text: clampString(entry?.text, MAX_TEXT_LENGTH),
@@ -3295,6 +3689,7 @@ function sanitizeImportedEntry(entry, label = 'الإدخال') {
     updatedAt,
     createdLocal: sanitizeImportedCreatedLocal(entry?.createdLocal, createdAt, label),
     pathLog: sanitizeImportedPathLog(entry?.pathLog, path, createdAt, updatedAt, label),
+    eventLog,
     completedAt: validIso(entry?.completedAt),
     deletedAt: validIso(entry?.deletedAt),
     context: clampString(entry?.context, MAX_SHORT_TEXT),
@@ -3466,7 +3861,13 @@ async function runLegacyMigration(dbName = null) {
       showToast('لا توجد عناصر v0 جديدة للاستيراد.');
       return;
     }
-    if (!confirm(`استيراد ${batch.entries.length} عناصر من v0؟`)) return;
+    const approved = await askConfirm({
+      title: 'استيراد مرساة v0',
+      message: `سيُدمج ${batch.entries.length} عنصرًا من القاعدة القديمة مع بيانات مرساة الحالية.`,
+      accept: 'استيراد v0',
+      danger: false
+    });
+    if (!approved) return;
     await writeImportBatch(batch);
     migrationCommitted = true;
     await putSetting('legacyMigrationChoice', 'imported');
@@ -3565,7 +3966,16 @@ function bindEvents() {
   });
   elements.settingsButton.addEventListener('click', openSettingsDialog);
   elements.settingsDialog.addEventListener('close', () => elements.settingsButton.classList.remove('active'));
+  elements.themeLightButton.addEventListener('click', () => selectTheme('light'));
+  elements.themeDarkButton.addEventListener('click', () => selectTheme('dark'));
+  systemDarkTheme.addEventListener?.('change', () => {
+    if (!validTheme(settingsMap.get('theme'))) applyTheme(null);
+  });
   $$('.nav-btn[data-target]').forEach(button => button.addEventListener('click', () => switchView(button.dataset.target)));
+  elements.openTopTaskDialog.addEventListener('click', () => {
+    if (!elements.topTaskDialog.open) elements.topTaskDialog.showModal();
+    setTimeout(() => elements.quickTaskInput.focus(), 80);
+  });
   elements.captureFab.addEventListener('click', openCaptureDialog);
   elements.captureForm.addEventListener('submit', handleCaptureSubmit);
   elements.captureText.addEventListener('keydown', event => {
@@ -3625,6 +4035,14 @@ function bindEvents() {
     elements.editAttachmentInput.value = '';
   });
   elements.editDeleteButton.addEventListener('click', deleteEditedEntry);
+  elements.entryDetailsEdit.addEventListener('click', () => {
+    const entryId = activeDetailsEntryId;
+    elements.entryDetailsDialog.close();
+    if (entryId) openEditDialog(entryId);
+  });
+  elements.entryDetailsDialog.addEventListener('close', () => {
+    activeDetailsEntryId = null;
+  });
   elements.attachmentViewerClose.addEventListener('click', closeImageViewer);
   elements.attachmentViewerZoom.addEventListener('click', toggleImageViewerZoom);
   elements.attachmentViewerImage.addEventListener('click', toggleImageViewerZoom);
@@ -3645,7 +4063,8 @@ function bindEvents() {
   $$('[data-close-dialog]').forEach(button => button.addEventListener('click', () => {
     document.getElementById(button.dataset.closeDialog)?.close();
   }));
-  [elements.captureDialog, elements.directionDialog, elements.editDialog, elements.settingsDialog].forEach(dialog => {
+  [elements.topTaskDialog, elements.captureDialog, elements.directionDialog, elements.editDialog,
+    elements.entryDetailsDialog, elements.settingsDialog].forEach(dialog => {
     dialog.addEventListener('click', event => {
       if (event.target === dialog) dialog.close();
     });
@@ -3705,6 +4124,7 @@ async function registerServiceWorker() {
 }
 
 async function init() {
+  applyTheme(null);
   bindEvents();
   await openDatabase();
   await refreshData();

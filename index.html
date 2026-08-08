@@ -6,8 +6,7 @@
   <meta name="referrer" content="no-referrer">
   <meta http-equiv="Permissions-Policy" content="geolocation=(), payment=(), usb=(), bluetooth=(), accelerometer=(), gyroscope=(), magnetometer=()">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <meta name="theme-color" content="#f3f2f2" media="(prefers-color-scheme: light)">
-  <meta name="theme-color" content="#1b1a1a" media="(prefers-color-scheme: dark)">
+  <meta name="theme-color" id="themeColor" content="#f3f2f2">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="مرساة">
@@ -59,7 +58,7 @@
     }
 
     :root {
-      color-scheme: light dark;
+      color-scheme: light;
 
       --color-bg: #f3f2f2;
       --color-surface: #eae9e9;
@@ -128,8 +127,8 @@
       --safe-bottom: env(safe-area-inset-bottom, 0px);
     }
 
-    @media (prefers-color-scheme: dark) {
-      :root {
+    :root[data-theme="dark"] {
+        color-scheme: dark;
         --color-bg: #1b1a1a;
         --color-surface: #2d2b2b;
         --color-panel: #232222;
@@ -176,7 +175,6 @@
         --shadow-lg: 0 12px 32px rgba(0,0,0,.6);
 
         --focus: var(--color-accent-ink);
-      }
     }
 
     * , *::before, *::after { box-sizing: border-box; }
@@ -194,7 +192,7 @@
       background: var(--color-bg);
       color: var(--color-text);
       font-family: var(--font-body);
-      font-size: 15px;
+      font-size: 16px;
       line-height: 1.55;
       font-weight: 400;
       -webkit-font-smoothing: antialiased;
@@ -247,7 +245,7 @@
       padding: calc(18px + var(--safe-top)) 18px calc(112px + var(--safe-bottom));
     }
 
-    /* ── الترويسة: كيكر + قاعدة اللهجة ── */
+    /* ── الترويسة ── */
 
     header {
       display: flex;
@@ -257,26 +255,19 @@
       margin-bottom: var(--space-3);
     }
 
-    .brand { display: flex; align-items: center; gap: 8px; min-width: 0; }
-    .brand-mark {
-      width: 20px; height: 20px; flex: none;
-      display: grid; place-items: center;
-      border: 0; background: none; box-shadow: none;
-      color: var(--color-accent-ink);
-    }
-    .brand-mark svg { width: 20px; height: 20px; }
+    .brand { min-width: 0; }
     .brand h1 {
       margin: 0;
-      font-size: 11px;
+      font-size: 19px;
       font-weight: 600;
       letter-spacing: 0;
       color: var(--color-accent-ink);
     }
     .brand p {
       margin: 0;
-      font-size: 11px;
+      font-size: 15px;
       color: var(--color-muted);
-      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+      line-height: 1.55;
     }
 
     /* ── العروض ── */
@@ -309,39 +300,32 @@
       padding-top: var(--space-2);
     }
 
-    .today-date-line {
-      display: flex;
-      align-items: baseline;
-      justify-content: space-between;
-      gap: var(--space-2);
-      border-bottom: 1px solid var(--color-divider);
-      padding-bottom: 12px;
-    }
-    .today-date-line span { min-width: 0; }
-
-    .today-head, .section-head, .row-between {
+    .section-head, .row-between {
       display: flex;
       align-items: baseline;
       justify-content: space-between;
       gap: var(--space-2);
     }
-    .today-head h2, .section-head h2, .section-head h3 {
+    .section-head h2, .section-head h3 {
       margin: 0;
-      font-size: 22px;
+      font-size: 24px;
       font-weight: 600;
     }
-    .today-head p, .section-head p {
+    .section-head p {
       margin: 3px 0 0;
-      font-size: 13px;
+      font-size: 14px;
       color: var(--color-muted);
     }
 
-    #todayLabel { font-size: 30px; font-weight: 600; margin: 0; }
-    #todayDate { font-size: 13px; color: var(--color-muted); white-space: nowrap; }
+    .today-focus-line {
+      display: flex;
+      align-items: center;
+      gap: var(--space-2);
+    }
 
     .top-progress-dots { display: flex; gap: 6px; flex: none; }
     .top-progress-dot {
-      width: 9px; height: 9px; border-radius: 50%;
+      width: 11px; height: 11px; border-radius: 50%;
       border: 1.5px solid var(--color-accent-ink);
       background: transparent;
       opacity: .4;
@@ -356,7 +340,9 @@
       box-sizing: border-box;
       display: flex; align-items: center; justify-content: space-between;
       gap: var(--space-2);
-      width: 100%;
+      width: auto;
+      min-width: 0;
+      flex: 1;
       min-height: var(--tap);
       padding: 12px 2px;
       cursor: pointer;
@@ -366,16 +352,16 @@
       min-width: 0; flex: 1;
     }
     .direction-summary-label {
-      font-size: 11px; color: var(--color-muted);
+      font-size: 13px; color: var(--color-muted);
       flex: none; white-space: nowrap;
     }
-    .direction-compass { font-size: 12px; }
+    .direction-compass { font-size: 16px; }
     .direction-summary-value {
-      font-size: 15px; font-weight: 600;
+      font-size: 17px; font-weight: 600;
       overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
       flex: 1; min-width: 0;
     }
-    .direction-summary-arrow { color: var(--color-accent-ink); font-size: 18px; flex: none; }
+    .direction-summary-arrow { color: var(--color-accent-ink); font-size: 21px; flex: none; }
     .direction-field { min-height: 76px; resize: none; }
 
     /* ── الأزرار ── */
@@ -385,7 +371,7 @@
       min-height: var(--tap);
       font-family: var(--font-heading);
       font-weight: 600;
-      font-size: 14px;
+      font-size: 16px;
       line-height: 1.2;
       color: var(--color-text);
       background: transparent;
@@ -401,7 +387,7 @@
     .quiet-btn { border-color: var(--color-divider); color: var(--color-muted); }
     .quiet-btn:active, .danger-btn:active { background: color-mix(in srgb, var(--color-text) 14%, transparent); }
     .danger-btn { background: var(--color-danger-soft); color: var(--color-danger); }
-    .small-btn { min-height: var(--tap); padding: 8px 14px; font-size: 13px; }
+    .small-btn { min-height: var(--tap); padding: 8px 14px; font-size: 15px; }
 
     /* ── الحقول ── */
 
@@ -410,7 +396,7 @@
       min-height: var(--tap);
       padding: 8px 12px;
       font: inherit;
-      font-size: 14px;
+      font-size: 16px;
       color: var(--color-text);
       caret-color: var(--color-accent-ink);
       background: var(--color-surface);
@@ -426,15 +412,15 @@
 
     .form-group { display: grid; gap: 5px; }
     .form-group label, .form-label {
-      font-size: 12px;
+      font-size: 14px;
       color: var(--color-muted);
     }
     .check-label {
       display: flex; align-items: center; gap: 8px;
-      min-height: var(--tap); cursor: pointer; font-size: 14px;
+      min-height: var(--tap); cursor: pointer; font-size: 16px;
     }
-    .checkbox { width: 20px; height: 20px; flex: none; accent-color: var(--color-accent-ink); }
-    .tiny-note { font-size: 11px; color: var(--color-muted); line-height: 1.5; }
+    .checkbox { width: 22px; height: 22px; flex: none; accent-color: var(--color-accent-ink); }
+    .tiny-note { font-size: 12px; color: var(--color-muted); line-height: 1.5; }
 
     .inline-form, .entries-filter-grid, .form-grid {
       display: grid;
@@ -447,18 +433,38 @@
     /* ── أهم المهام ── */
 
     .top-list, .card-list, .day-list, .preview-grid { display: grid; gap: 8px; }
+    .top-priorities { display: grid; gap: 8px; }
+    .top-priorities .section-head { align-items: center; }
+    .top-add-button {
+      all: unset; box-sizing: border-box;
+      width: var(--tap); height: var(--tap);
+      display: grid; place-items: center;
+      border: 1px solid var(--color-divider);
+      border-radius: var(--radius-md);
+      color: var(--color-accent-ink);
+      cursor: pointer;
+      font-size: 25px; line-height: 1;
+    }
+    .top-empty {
+      min-height: var(--tap);
+      display: flex; align-items: center;
+      color: var(--color-muted);
+      font-size: 14px;
+    }
+    .top-task-dialog .dialog-inner { padding-bottom: calc(18px + var(--safe-bottom)); }
+    .top-task-dialog .options { margin-top: 2px; }
 
     .top-item {
       display: grid;
       grid-template-columns: minmax(0, 1fr) auto;
       gap: var(--space-2);
       align-items: center;
-      padding: 11px 12px;
+      padding: 4px 8px;
       border-radius: var(--radius-md);
       background: var(--color-surface);
     }
     .top-item.done .entry-title { text-decoration: line-through; opacity: .55; }
-    .top-item.top-task-item { grid-template-columns: minmax(0, 1fr) var(--tap); }
+    .top-item.top-task-item { grid-template-columns: minmax(0, 1fr) var(--tap); min-height: 52px; }
     .top-task-check {
       width: 100%;
       min-height: var(--tap);
@@ -507,9 +513,20 @@
       padding-block: 7px;
     }
 
+    .entry-open {
+      width: 100%;
+      min-height: var(--tap);
+      border: 0;
+      padding-inline: 0;
+      background: transparent;
+      color: inherit;
+      text-align: start;
+      cursor: pointer;
+    }
+
     .entry-title, .entry-text {
       margin: 0;
-      font-size: 15px;
+      font-size: 17px;
       font-weight: 600;
       line-height: 1.7;
       white-space: pre-wrap;
@@ -521,7 +538,7 @@
       gap: 6px; margin-top: 8px;
     }
     .meta-text {
-      font-size: 12px;
+      font-size: 14px;
       color: var(--color-muted);
       font-variant-numeric: tabular-nums;
     }
@@ -530,7 +547,7 @@
 
     .chip {
       display: inline-flex; align-items: center;
-      font-size: 11px; letter-spacing: 0;
+      font-size: 13px; letter-spacing: 0;
       padding: 3px 10px;
       border-radius: calc(var(--radius-md) * .75);
       background: var(--color-neutral-100);
@@ -562,7 +579,7 @@
       color: var(--color-muted);
       padding: 8px 10px;
       border-radius: var(--radius-sm);
-      font-size: 13px;
+      font-size: 20px;
       font-weight: 600;
     }
     .action-link:hover { background: color-mix(in srgb, var(--color-text) 7%, transparent); }
@@ -583,8 +600,8 @@
       font-weight: 600;
     }
     .path-menu > summary::-webkit-details-marker { display: none; }
-    .path-menu-icon { font-size: 18px; line-height: 1; }
-    .path-menu > summary::after { content: '‹'; font-size: 12px; }
+    .path-menu-icon { font-size: 22px; line-height: 1; }
+    .path-menu > summary::after { content: '‹'; font-size: 15px; }
     .path-menu[open] > summary { background: color-mix(in srgb, var(--color-text) 7%, transparent); }
     .path-menu-options {
       position: absolute; z-index: 20;
@@ -600,11 +617,11 @@
       all: unset; box-sizing: border-box;
       cursor: pointer; padding: 9px 10px;
       border-radius: var(--radius-sm);
-      font-size: 12px; text-align: start;
+      font-size: 14px; text-align: start;
       min-height: var(--tap); display: flex; align-items: center; gap: 9px;
     }
     .path-option-icon {
-      width: 20px; text-align: center; font-size: 16px; line-height: 1;
+      width: 22px; text-align: center; font-size: 20px; line-height: 1;
       color: var(--path-color, var(--color-accent-ink));
     }
     .path-menu-option:hover { background: color-mix(in srgb, var(--color-text) 8%, transparent); }
@@ -735,7 +752,7 @@
       border-radius: 999px;
       background: var(--color-surface);
       color: var(--color-text);
-      font-size: 13px; font-weight: 600;
+      font-size: 14px; font-weight: 600;
     }
     .segment-btn.active { background: var(--color-accent-ink); color: var(--color-on-accent); }
 
@@ -763,14 +780,14 @@
       border-radius: var(--radius-md);
       background: var(--color-surface);
       color: var(--color-text);
-      font-size: 12px;
+      font-size: 14px;
       font-weight: 600;
       white-space: nowrap;
     }
     .entries-path-button .count { color: inherit; opacity: .7; }
     .entries-path-name { display: inline-flex; align-items: center; gap: 4px; }
     .entries-path-icon {
-      font-size: 15px; line-height: 1;
+      font-size: 20px; line-height: 1;
       color: var(--path-color, currentColor);
     }
     .entries-path-button.active {
@@ -798,14 +815,14 @@
       gap: 10px;
       cursor: pointer;
       list-style: none;
-      font-size: 12px;
+      font-size: 14px;
       font-weight: 600;
     }
     .entries-filter-options > summary::-webkit-details-marker { display: none; }
     .entries-filter-options > summary::after {
       content: '‹';
       color: var(--color-accent-ink);
-      font-size: 16px;
+      font-size: 19px;
       flex: none;
     }
     .entries-filter-options[open] > summary::after { content: '⌄'; }
@@ -843,9 +860,9 @@
       background: var(--color-surface);
       color: var(--color-text);
     }
-    .day-button .weekday { display: block; font-size: 11px; font-weight: 600; }
-    .day-button strong { display: block; font-size: 17px; font-weight: 600; margin: 2px 0; font-variant-numeric: tabular-nums; }
-    .day-button .count { display: block; font-size: 10px; color: var(--color-muted); }
+    .day-button .weekday { display: block; font-size: 13px; font-weight: 600; }
+    .day-button strong { display: block; font-size: 19px; font-weight: 600; margin: 2px 0; font-variant-numeric: tabular-nums; }
+    .day-button .count { display: block; font-size: 12px; color: var(--color-muted); }
     .day-button.active { background: var(--color-accent-ink); color: var(--color-on-accent); }
     .day-button.active .weekday, .day-button.active .count { color: var(--color-on-accent); opacity: .85; }
 
@@ -861,8 +878,8 @@
       background: var(--color-surface);
       position: relative;
     }
-    .archive-month-picker strong { font-size: 15px; font-weight: 600; }
-    .archive-month-picker span { font-size: 11px; color: var(--color-muted); font-variant-numeric: tabular-nums; }
+    .archive-month-picker strong { font-size: 17px; font-weight: 600; }
+    .archive-month-picker span { font-size: 13px; color: var(--color-muted); font-variant-numeric: tabular-nums; }
     .archive-month-picker input {
       position: absolute; inset: 0; opacity: 0; cursor: pointer;
       width: 100%; height: 100%;
@@ -875,9 +892,9 @@
       border: 1px solid var(--color-divider);
       border-radius: var(--radius-md);
       color: var(--color-accent-ink);
-      font-size: 16px;
+      font-size: 20px;
     }
-    .archive-summary { font-size: 12px; color: var(--color-muted); margin-bottom: var(--space-2); }
+    .archive-summary { font-size: 14px; color: var(--color-muted); margin-bottom: var(--space-2); }
     .two-col { display: grid; gap: var(--space-4); align-items: start; }
     .two-col > .panel + .panel { margin-top: 0; }
 
@@ -889,7 +906,7 @@
       border-radius: var(--radius-md);
       text-align: center;
       color: var(--color-muted);
-      font-size: 13px;
+      font-size: 14px;
       line-height: 1.6;
       background: none;
     }
@@ -938,7 +955,7 @@
       border-radius: var(--radius-sm);
       background: var(--color-neutral-200);
       color: var(--color-accent-ink);
-      font-size: 10px; font-weight: 700;
+      font-size: 12px; font-weight: 700;
       direction: ltr;
     }
     .attachment-file-copy { min-width: 0; }
@@ -946,12 +963,12 @@
       display: block;
       overflow: hidden;
       color: var(--color-text);
-      font-size: 12px; font-weight: 600;
+      font-size: 14px; font-weight: 600;
       text-overflow: ellipsis;
       white-space: nowrap;
     }
-    .attachment-file-size { display: block; margin-block-start: 2px; color: var(--color-muted); font-size: 10px; }
-    .attachment-file-action { color: var(--color-accent-ink); font-size: 17px; }
+    .attachment-file-size { display: block; margin-block-start: 2px; color: var(--color-muted); font-size: 12px; }
+    .attachment-file-action { color: var(--color-accent-ink); font-size: 20px; }
     .attachment-remove {
       position: absolute;
       inset-block-start: 6px; inset-inline-start: 6px;
@@ -963,12 +980,12 @@
     }
     .edit-attachments summary {
       cursor: pointer; list-style: none;
-      font-size: 13px; font-weight: 600;
+      font-size: 15px; font-weight: 600;
       min-height: var(--tap); display: flex; align-items: center; gap: 6px;
     }
     .edit-attachments summary::after { content: '›'; color: var(--color-accent-ink); }
     .edit-attachments[open] summary::after { content: '⌄'; }
-    .edit-age-field { display: flex; align-items: baseline; gap: 8px; font-size: 12px; color: var(--color-muted); }
+    .edit-age-field { display: flex; align-items: baseline; gap: 8px; font-size: 14px; color: var(--color-muted); }
     .edit-age-field span:first-child { font-weight: 600; }
 
     dialog.attachment-viewer {
@@ -991,7 +1008,7 @@
     .attachment-viewer-title {
       align-self: center;
       overflow: hidden;
-      font-size: 12px; font-weight: 600;
+      font-size: 14px; font-weight: 600;
       text-align: center;
       text-overflow: ellipsis;
       white-space: nowrap;
@@ -1000,7 +1017,7 @@
       width: var(--tap); height: var(--tap); min-height: var(--tap);
       border: 0; border-radius: var(--radius-sm);
       background: #292929; color: #ffffff;
-      font-size: 20px;
+      font-size: 22px;
     }
     .attachment-viewer-stage {
       min-height: 0;
@@ -1035,7 +1052,7 @@
       background: var(--color-accent-ink);
       color: var(--color-on-accent);
       display: grid; place-items: center;
-      font-size: 26px; line-height: 1;
+      font-size: 30px; line-height: 1;
       box-shadow: 0 0 0 5px var(--color-surface), var(--shadow-lg);
       transform: translateX(-50%);
       transition: opacity .12s ease, transform .12s ease, visibility .12s ease;
@@ -1065,11 +1082,11 @@
       display: grid; place-items: center;
       padding: 6px 2px;
       color: var(--color-muted);
-      font-size: 12px; font-weight: 600;
+      font-size: 14px; font-weight: 600;
     }
     .capture-nav-slot { min-width: 0; min-height: var(--tap); }
     .nav-btn.active { color: var(--color-accent-ink); }
-    .nav-btn.settings-tab { font-size: 15px; position: relative; }
+    .nav-btn.settings-tab { font-size: 19px; position: relative; }
     .nav-btn.settings-tab.backup-due::after {
       content: ''; position: absolute;
       top: 4px; inset-inline-end: calc(50% - 14px);
@@ -1090,14 +1107,16 @@
       box-shadow: var(--shadow-lg);
     }
     dialog::backdrop { background: color-mix(in srgb, #2d2b2b 50%, transparent); }
-    dialog.capture-sheet, dialog.edit-sheet, dialog.confirm-sheet {
+    dialog.capture-sheet, dialog.edit-sheet, dialog.confirm-sheet, dialog.top-task-dialog,
+    dialog.entry-details-sheet {
       width: 100%; max-width: 100%;
       margin: 0 0 0 auto;
       inset-block-end: 0; inset-block-start: auto;
       border: 0;
       border-radius: var(--radius-lg) var(--radius-lg) 0 0;
     }
-    dialog.capture-sheet .dialog-inner, dialog.edit-sheet .dialog-inner, dialog.confirm-sheet .dialog-inner {
+    dialog.capture-sheet .dialog-inner, dialog.edit-sheet .dialog-inner, dialog.confirm-sheet .dialog-inner,
+    dialog.top-task-dialog .dialog-inner, dialog.entry-details-sheet .dialog-inner {
       padding: 18px 18px calc(18px + var(--safe-bottom));
     }
     .dialog-inner { max-height: 90dvh; overflow-y: auto; padding: var(--space-4); }
@@ -1105,14 +1124,14 @@
       display: flex; align-items: center; justify-content: space-between;
       gap: var(--space-2); margin-bottom: var(--space-3);
     }
-    .dialog-head h2 { margin: 0; font-size: 20px; font-weight: 600; }
+    .dialog-head h2 { margin: 0; font-size: 22px; font-weight: 600; }
     .dialog-close {
       all: unset; box-sizing: border-box;
       cursor: pointer; flex: none;
       width: var(--tap); height: var(--tap);
       display: grid; place-items: center;
       border-radius: var(--radius-sm);
-      font-size: 18px; color: var(--color-muted);
+      font-size: 21px; color: var(--color-muted);
     }
     .dialog-actions {
       display: flex; justify-content: space-between;
@@ -1120,6 +1139,64 @@
     }
     .edit-sheet-actions { display: flex; justify-content: space-between; gap: var(--space-2); flex-wrap: wrap; }
     .edit-sheet .form-grid { grid-template-columns: 1fr; }
+
+    .entry-details-text {
+      margin: 0;
+      font-size: 18px;
+      font-weight: 600;
+      line-height: 1.75;
+      white-space: pre-wrap;
+      overflow-wrap: anywhere;
+    }
+    .entry-details-facts {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      margin: 0;
+      border-block: 1px solid var(--color-divider);
+    }
+    .entry-details-fact {
+      min-width: 0;
+      padding: 10px 6px;
+    }
+    .entry-details-fact + .entry-details-fact { border-inline-start: 1px solid var(--color-hairline); }
+    .entry-details-fact dt { color: var(--color-muted); font-size: 12px; }
+    .entry-details-fact dd {
+      margin: 3px 0 0;
+      font-size: 14px;
+      font-weight: 600;
+      line-height: 1.55;
+      overflow-wrap: anywhere;
+    }
+    .entry-details-section h3, .entry-details-attachments h3 {
+      margin: 0 0 8px;
+      font-size: 16px;
+      font-weight: 600;
+    }
+    .entry-details-events { margin: 0; padding: 0; list-style: none; }
+    .entry-event {
+      position: relative;
+      display: grid;
+      gap: 2px;
+      min-height: var(--tap);
+      padding: 8px 18px 8px 0;
+      border-inline-start: 1px solid var(--color-divider);
+    }
+    .entry-event::before {
+      content: '';
+      position: absolute;
+      inset-inline-start: -4px;
+      inset-block-start: 16px;
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: var(--color-accent-ink);
+    }
+    .entry-event-label { font-size: 14px; line-height: 1.55; }
+    .entry-event-time {
+      color: var(--color-muted);
+      font-size: 12px;
+      font-variant-numeric: tabular-nums;
+    }
     .options-body { display: grid; gap: 6px; padding: 0 12px 12px; }
     details.options {
       border-radius: var(--radius-md);
@@ -1129,7 +1206,7 @@
     details.options > summary {
       padding: 11px 12px; cursor: pointer;
       list-style: none;
-      font-size: 13px; font-weight: 600;
+      font-size: 15px; font-weight: 600;
       min-height: var(--tap); display: flex; align-items: center;
     }
     details.options > summary::-webkit-details-marker { display: none; }
@@ -1138,7 +1215,7 @@
 
     .confirm-text {
       margin: 0 0 var(--space-2);
-      font-size: 14px;
+      font-size: 16px;
       line-height: 1.7;
     }
     .confirm-preview {
@@ -1147,7 +1224,7 @@
       border-inline-start: 3px solid var(--color-divider);
       background: var(--color-surface);
       border-radius: var(--radius-md);
-      font-size: 14px;
+      font-size: 16px;
       line-height: 1.7;
       max-height: 96px;
       overflow: hidden;
@@ -1165,10 +1242,28 @@
       background: var(--color-surface);
     }
     .settings-item.emphasis { box-shadow: inset 3px 0 0 var(--color-accent); }
-    .settings-item h3 { margin: 0 0 6px; font-size: 14px; font-weight: 600; }
-    .settings-item p { margin: 0 0 10px; font-size: 12px; color: var(--color-muted); line-height: 1.6; }
+    .settings-item h3 { margin: 0 0 6px; font-size: 16px; font-weight: 600; }
+    .settings-item p { margin: 0 0 10px; font-size: 14px; color: var(--color-muted); line-height: 1.6; }
     .settings-actions { display: flex; gap: 8px; flex-wrap: wrap; }
     .file-action { display: inline-flex; align-items: center; justify-content: center; cursor: pointer; }
+    .theme-switch {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      border: 1px solid var(--color-divider);
+      border-radius: var(--radius-md);
+      overflow: hidden;
+    }
+    .theme-choice {
+      min-height: var(--tap);
+      display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+      border: 0;
+      background: transparent;
+      color: var(--color-muted);
+      font-size: 15px; font-weight: 600;
+    }
+    .theme-choice + .theme-choice { border-inline-start: 1px solid var(--color-divider); }
+    .theme-choice[aria-pressed="true"] { background: var(--color-accent-ink); color: var(--color-on-accent); }
+    .theme-choice-symbol { font-size: 20px; line-height: 1; }
 
     .storage-meter {
       height: 7px; border-radius: var(--radius-sm);
@@ -1208,7 +1303,7 @@
       font-weight: 600; text-decoration: underline;
     }
 
-    .count { font-size: 12px; color: var(--color-muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+    .count { font-size: 14px; color: var(--color-muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
 
     /* ── الاستجابة ── */
 
@@ -1249,17 +1344,9 @@
   <div class="app-shell">
     <header>
       <div class="brand">
-        <div class="brand-mark" aria-hidden="true">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
-            <path d="M12 3v13"/>
-            <path d="M7 8h10"/>
-            <path d="M5 13c0 4 3.1 7 7 7s7-3 7-7"/>
-            <path d="M4 13h3M17 13h3"/>
-          </svg>
-        </div>
         <div>
           <h1>مرساة</h1>
-          <p>دفتر اليوم: التقط، فرز، نفّذ، وثّق</p>
+          <p id="brandToday">دفتر اليوم</p>
         </div>
       </div>
     </header>
@@ -1267,41 +1354,28 @@
     <main id="mainContent" tabindex="-1">
       <section class="view active" id="todayView" data-view="today">
         <div class="today-hero">
-          <div class="today-head">
-            <div class="today-date-line">
-              <h2 id="todayLabel">اليوم</h2>
-              <span id="todayDate"></span>
-            </div>
+          <div class="today-focus-line">
+            <button class="direction-summary" id="directionButton" type="button">
+              <span class="direction-summary-copy">
+                <span class="direction-summary-label"><span class="direction-compass" aria-hidden="true">🧭</span>توجّه اليوم</span>
+                <span class="direction-summary-value" id="directionDisplay" dir="auto">حدد توجّه اليوم</span>
+              </span>
+              <span class="direction-summary-arrow" aria-hidden="true">‹</span>
+            </button>
             <div class="top-progress-dots" id="topProgress" role="img" aria-label="0 من 3 مهام مكتملة">
               <span class="top-progress-dot"></span>
               <span class="top-progress-dot"></span>
               <span class="top-progress-dot"></span>
             </div>
           </div>
-          <button class="direction-summary" id="directionButton" type="button">
-            <span class="direction-summary-copy">
-              <span class="direction-summary-label"><span class="direction-compass" aria-hidden="true">🧭</span>توجّه اليوم</span>
-              <span class="direction-summary-value" id="directionDisplay" dir="auto">حدد توجّه اليوم</span>
-            </span>
-            <span class="direction-summary-arrow" aria-hidden="true">‹</span>
-          </button>
         </div>
 
-        <section class="panel stack">
+        <section class="panel top-priorities">
           <div class="section-head">
-            <div>
-              <h2>أهم ثلاث مهام</h2>
-            </div>
+            <h2>أهم اليوم</h2>
+            <button class="top-add-button" id="openTopTaskDialog" type="button" aria-label="إضافة مهمة" title="إضافة مهمة">+</button>
           </div>
           <div class="top-list" id="topTasksList"></div>
-          <div class="inline-form">
-            <input class="field" id="quickTaskInput" dir="auto" maxlength="5000" placeholder="أضف مهمة عليا جديدة">
-            <button class="primary-btn" id="addTopTaskButton">إضافة</button>
-          </div>
-          <details class="options">
-            <summary>إضافة من مسار «نفّذ»</summary>
-            <div class="options-body" id="topCandidates"></div>
-          </details>
         </section>
 
         <section class="panel stack">
@@ -1434,6 +1508,25 @@
     <button class="nav-btn settings-tab" id="settingsButton" aria-label="الإعدادات" title="الإعدادات">&#9881;</button>
   </nav>
 
+  <dialog class="top-task-dialog" id="topTaskDialog">
+    <div class="dialog-inner">
+      <div class="dialog-head">
+        <h2>إضافة مهمة</h2>
+        <button class="dialog-close" data-close-dialog="topTaskDialog" aria-label="إغلاق">×</button>
+      </div>
+      <div class="stack">
+        <div class="inline-form">
+          <input class="field" id="quickTaskInput" dir="auto" maxlength="5000" placeholder="مهمة جديدة" aria-label="مهمة جديدة">
+          <button class="primary-btn" id="addTopTaskButton" aria-label="إضافة المهمة" title="إضافة">+</button>
+        </div>
+        <details class="options">
+          <summary>من «نفّذ»</summary>
+          <div class="options-body" id="topCandidates"></div>
+        </details>
+      </div>
+    </div>
+  </dialog>
+
   <dialog class="capture-sheet" id="captureDialog">
     <div class="dialog-inner">
       <div class="dialog-head">
@@ -1530,6 +1623,38 @@
     </div>
   </dialog>
 
+  <dialog class="entry-details-sheet" id="entryDetailsDialog">
+    <div class="dialog-inner stack">
+      <div class="dialog-head">
+        <h2>تفاصيل الالتقاطة</h2>
+        <button class="dialog-close" data-close-dialog="entryDetailsDialog" aria-label="إغلاق">×</button>
+      </div>
+      <p class="entry-details-text" id="entryDetailsText" dir="auto"></p>
+      <dl class="entry-details-facts">
+        <div class="entry-details-fact">
+          <dt>الالتقاط</dt>
+          <dd id="entryDetailsCreated"></dd>
+        </div>
+        <div class="entry-details-fact">
+          <dt>المدة</dt>
+          <dd id="entryDetailsAge"></dd>
+        </div>
+        <div class="entry-details-fact">
+          <dt>المسار</dt>
+          <dd id="entryDetailsPath"></dd>
+        </div>
+      </dl>
+      <section class="entry-details-attachments" id="entryDetailsAttachments" hidden></section>
+      <section class="entry-details-section">
+        <h3>سجل الأحداث</h3>
+        <ol class="entry-details-events" id="entryDetailsEvents"></ol>
+      </section>
+      <div class="dialog-actions">
+        <button class="secondary-btn" id="entryDetailsEdit" type="button">تحرير</button>
+      </div>
+    </div>
+  </dialog>
+
   <dialog class="attachment-viewer" id="attachmentViewerDialog" aria-label="عارض الصورة">
     <div class="attachment-viewer-shell">
       <div class="attachment-viewer-bar">
@@ -1566,6 +1691,17 @@
         <button class="dialog-close" data-close-dialog="settingsDialog" aria-label="إغلاق">×</button>
       </div>
       <div class="settings-grid">
+        <section class="settings-item">
+          <h3>المظهر</h3>
+          <div class="theme-switch" role="group" aria-label="اختيار مظهر التطبيق">
+            <button class="theme-choice" id="themeLightButton" type="button" aria-pressed="false">
+              <span class="theme-choice-symbol" aria-hidden="true">☀</span><span>فاتح</span>
+            </button>
+            <button class="theme-choice" id="themeDarkButton" type="button" aria-pressed="false">
+              <span class="theme-choice-symbol" aria-hidden="true">☾</span><span>داكن</span>
+            </button>
+          </div>
+        </section>
         <section class="settings-item">
           <h3>حماية التخزين</h3>
           <p id="storageStatus">جارٍ فحص حالة التخزين…</p>
