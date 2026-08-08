@@ -94,11 +94,12 @@
       --color-danger-soft: #fff1f4;
       --color-warning-ink: #605d5d;
 
-      --track-untriaged: #9b9797;
-      --track-do: #38a6cf;
-      --track-consider: #ff458e;
-      --track-waiting: #605d5d;
-      --track-reference: #bab6b6;
+      --track-untriaged: #676363;
+      --track-do: #006c7a;
+      --track-consider: #a61e5c;
+      --track-waiting: #865400;
+      --track-reference: #536981;
+      --track-on-color: #ffffff;
 
       --toast-bg: #2d2b2b;
       --toast-text: #f3f2f2;
@@ -123,6 +124,7 @@
 
       --focus: var(--color-accent-ink);
       --tap: 44px;
+      --safe-top: env(safe-area-inset-top, 0px);
       --safe-bottom: env(safe-area-inset-bottom, 0px);
     }
 
@@ -154,8 +156,9 @@
         --track-untriaged: #bab6b6;
         --track-do: #62c5ee;
         --track-consider: #ff90b1;
-        --track-waiting: #d7d3d3;
-        --track-reference: #7d7979;
+        --track-waiting: #e0aa58;
+        --track-reference: #a9bdd2;
+        --track-on-color: #171717;
 
         /* سلّم neutral مقلوب في الداكن: الشرائح والمقياس تستعمله مباشرة،
            وبقيم الوضع الفاتح كانت تظهر كرقع بيضاء ساطعة. */
@@ -239,7 +242,9 @@
       width: min(760px, 100%);
       min-height: 100dvh;
       margin-inline: auto;
-      padding: 18px 18px calc(112px + var(--safe-bottom));
+      /* black-translucent يمدّ الصفحة تحت شريط الحالة والجزيرة الديناميكية،
+         فبدون safe-area-inset-top تختفي الترويسة تحتهما على iPhone. */
+      padding: calc(18px + var(--safe-top)) 18px calc(112px + var(--safe-bottom));
     }
 
     /* ── الترويسة: كيكر + قاعدة اللهجة ── */
@@ -476,13 +481,13 @@
     }
     .entry-card {
       position: relative;
-      border-inline-start: 4px solid var(--track-untriaged);
+      border-inline-start: 4px solid var(--path-color, var(--track-untriaged));
     }
-    .entry-card.path-untriaged { border-inline-start-color: var(--track-untriaged); }
-    .entry-card.path-do        { border-inline-start-color: var(--track-do); }
-    .entry-card.path-consider  { border-inline-start-color: var(--track-consider); }
-    .entry-card.path-waiting   { border-inline-start-color: var(--track-waiting); }
-    .entry-card.path-reference { border-inline-start-color: var(--track-reference); }
+    .path-untriaged { --path-color: var(--track-untriaged); }
+    .path-do { --path-color: var(--track-do); }
+    .path-consider { --path-color: var(--track-consider); }
+    .path-waiting { --path-color: var(--track-waiting); }
+    .path-reference { --path-color: var(--track-reference); }
 
     .entry-heading {
       display: grid;
@@ -531,9 +536,11 @@
       background: var(--color-neutral-100);
       color: var(--color-neutral-800);
     }
-    .chip.path-do { background: var(--color-accent-soft); color: var(--color-accent-strong); }
-    .chip.path-consider { background: var(--color-accent-2-soft); color: var(--color-accent-2-ink); }
-    .chip.path-waiting { background: var(--color-neutral-200); color: var(--color-neutral-900); }
+    .chip.path-untriaged, .chip.path-do, .chip.path-consider,
+    .chip.path-waiting, .chip.path-reference {
+      background: color-mix(in srgb, var(--path-color) 14%, transparent);
+      color: var(--path-color);
+    }
     .chip.age-chip { background: none; padding-inline: 0; color: var(--color-muted); }
     .chip.overdue { background: var(--color-danger-soft); color: var(--color-danger); }
     .chip.top-marker { background: var(--color-accent-soft); color: var(--color-accent-strong); }
@@ -572,7 +579,7 @@
       width: var(--tap); height: var(--tap); padding: 0;
       justify-content: center;
       cursor: pointer;
-      color: var(--color-accent-ink);
+      color: var(--path-color, var(--color-accent-ink));
       font-weight: 600;
     }
     .path-menu > summary::-webkit-details-marker { display: none; }
@@ -596,10 +603,127 @@
       font-size: 12px; text-align: start;
       min-height: var(--tap); display: flex; align-items: center; gap: 9px;
     }
-    .path-option-icon { width: 20px; text-align: center; font-size: 16px; line-height: 1; }
+    .path-option-icon {
+      width: 20px; text-align: center; font-size: 16px; line-height: 1;
+      color: var(--path-color, var(--color-accent-ink));
+    }
     .path-menu-option:hover { background: color-mix(in srgb, var(--color-text) 8%, transparent); }
 
     /* ── الالتقاطات والمرشحات ── */
+
+    .analysis-summary {
+      margin: 0;
+      border-block: 1px solid var(--color-divider);
+    }
+    .analysis-row {
+      min-height: var(--tap);
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      align-items: baseline;
+      gap: var(--space-2);
+      padding-block: 8px;
+      border-block-end: 1px solid var(--color-hairline);
+    }
+    .analysis-row:last-child { border-block-end: 0; }
+    .analysis-row dt { font-size: 13px; font-weight: 600; }
+    .analysis-row dd {
+      margin: 0;
+      display: inline-flex;
+      align-items: baseline;
+      justify-content: flex-end;
+      gap: 8px;
+      text-align: end;
+      white-space: nowrap;
+    }
+    .analysis-row strong { font-size: 16px; font-weight: 600; font-variant-numeric: tabular-nums; }
+    .analysis-row small { font-size: 11px; color: var(--color-muted); }
+
+    .insight-panel { border-block-end: 1px solid var(--color-hairline); }
+    .insight-panel > summary {
+      min-height: var(--tap);
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto auto;
+      align-items: center;
+      gap: 8px;
+      cursor: pointer;
+      list-style: none;
+      font-size: 12px;
+      font-weight: 600;
+    }
+    .insight-panel > summary::-webkit-details-marker { display: none; }
+    .insight-panel > summary::after {
+      content: '‹';
+      color: var(--color-accent-ink);
+      font-size: 16px;
+    }
+    .insight-panel[open] > summary::after { content: '⌄'; }
+    .insight-summary-value {
+      min-width: 0;
+      overflow: hidden;
+      color: var(--color-muted);
+      font-size: 11px;
+      font-weight: 400;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .path-backlog-list { padding-block-end: 8px; }
+    .path-backlog-row {
+      all: unset;
+      box-sizing: border-box;
+      width: 100%;
+      min-height: var(--tap);
+      display: grid;
+      grid-template-columns: 72px minmax(0, 1fr) auto;
+      align-items: center;
+      gap: 8px;
+      cursor: pointer;
+      font-size: 11px;
+    }
+    .path-backlog-name { display: inline-flex; align-items: center; gap: 5px; font-weight: 600; }
+    .path-backlog-name span:first-child { color: var(--path-color); font-size: 15px; }
+    .path-backlog-track {
+      height: 6px;
+      overflow: hidden;
+      border-radius: 3px;
+      background: var(--color-neutral-200);
+    }
+    .path-backlog-fill {
+      display: block;
+      width: var(--bar-width, 0%);
+      height: 100%;
+      border-radius: inherit;
+      background: var(--path-color);
+    }
+    .path-backlog-meta { color: var(--color-muted); text-align: end; white-space: nowrap; }
+
+    .capture-heatmap { padding-block: 4px 10px; }
+    .heatmap-row, .heatmap-axis {
+      display: grid;
+      grid-template-columns: 30px repeat(24, minmax(0, 1fr));
+      gap: 1px;
+      align-items: center;
+      direction: rtl;
+    }
+    .heatmap-row + .heatmap-row { margin-block-start: 2px; }
+    .heatmap-day { color: var(--color-muted); font-size: 9px; text-align: start; }
+    .heatmap-cell {
+      aspect-ratio: 1;
+      min-width: 0;
+      border-radius: 1px;
+      background: var(--color-neutral-200);
+    }
+    .heatmap-cell.level-1 { background: color-mix(in srgb, var(--color-accent-ink) 28%, transparent); }
+    .heatmap-cell.level-2 { background: color-mix(in srgb, var(--color-accent-ink) 48%, transparent); }
+    .heatmap-cell.level-3 { background: color-mix(in srgb, var(--color-accent-ink) 70%, transparent); }
+    .heatmap-cell.level-4 { background: var(--color-accent-ink); }
+    .heatmap-axis { margin-block-start: 4px; color: var(--color-muted); font-size: 8px; }
+    .heatmap-axis span { grid-column: auto / span 1; text-align: center; }
+    .heatmap-axis .axis-spacer { grid-column: 1; }
+    .heatmap-axis .hour-0 { grid-column: 2; }
+    .heatmap-axis .hour-6 { grid-column: 8; }
+    .heatmap-axis .hour-12 { grid-column: 14; }
+    .heatmap-axis .hour-18 { grid-column: 20; }
+    .heatmap-axis .hour-23 { grid-column: 25; }
 
     .segmented { display: flex; flex-wrap: wrap; gap: 6px; }
     .segment-btn {
@@ -645,12 +769,24 @@
     }
     .entries-path-button .count { color: inherit; opacity: .7; }
     .entries-path-name { display: inline-flex; align-items: center; gap: 4px; }
-    .entries-path-icon { font-size: 15px; line-height: 1; }
+    .entries-path-icon {
+      font-size: 15px; line-height: 1;
+      color: var(--path-color, currentColor);
+    }
     .entries-path-button.active {
       border-color: var(--color-accent-ink);
       background: var(--color-accent-ink);
       color: var(--color-on-accent);
     }
+    .entries-path-button.active.path-do,
+    .entries-path-button.active.path-consider,
+    .entries-path-button.active.path-waiting,
+    .entries-path-button.active.path-reference {
+      border-color: var(--path-color);
+      background: var(--path-color);
+      color: var(--track-on-color);
+    }
+    .entries-path-button.active .entries-path-icon { color: inherit; }
     .entries-filter-options {
       border-block: 1px solid var(--color-hairline);
     }
@@ -758,38 +894,135 @@
       background: none;
     }
 
-    /* ── الصور ── */
+    /* ── المرفقات ── */
 
     .thumb-row, .preview-grid {
       display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(76px, 1fr));
       gap: 8px; margin-top: 8px;
     }
+    .thumb-row { grid-template-columns: repeat(auto-fill, minmax(76px, 1fr)); }
+    .preview-grid { grid-template-columns: repeat(auto-fill, minmax(112px, 1fr)); }
     .thumb, .preview-item {
       position: relative; overflow: hidden;
       border: 1px solid var(--color-divider);
       border-radius: var(--radius-md);
       background: var(--color-surface);
-      aspect-ratio: 1;
     }
-    .thumb img, .preview-item img { width: 100%; height: 100%; display: block; object-fit: cover; }
-    .preview-item button {
+    .attachment-image { aspect-ratio: 1; }
+    .attachment-open {
+      all: unset;
+      box-sizing: border-box;
+      width: 100%; height: 100%;
+      display: block;
+      cursor: zoom-in;
+    }
+    .attachment-open img { width: 100%; height: 100%; display: block; object-fit: cover; }
+    .attachment-file {
+      grid-column: 1 / -1;
+      min-height: 58px;
+    }
+    .attachment-file-open {
+      all: unset;
+      box-sizing: border-box;
+      width: 100%; min-height: 58px;
+      display: grid;
+      grid-template-columns: 38px minmax(0, 1fr) auto;
+      align-items: center;
+      gap: 10px;
+      padding: 8px 10px;
+      cursor: pointer;
+    }
+    .attachment-file-badge {
+      width: 36px; height: 36px;
+      display: grid; place-items: center;
+      border-radius: var(--radius-sm);
+      background: var(--color-neutral-200);
+      color: var(--color-accent-ink);
+      font-size: 10px; font-weight: 700;
+      direction: ltr;
+    }
+    .attachment-file-copy { min-width: 0; }
+    .attachment-file-name {
+      display: block;
+      overflow: hidden;
+      color: var(--color-text);
+      font-size: 12px; font-weight: 600;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .attachment-file-size { display: block; margin-block-start: 2px; color: var(--color-muted); font-size: 10px; }
+    .attachment-file-action { color: var(--color-accent-ink); font-size: 17px; }
+    .attachment-remove {
       position: absolute;
       inset-block-start: 6px; inset-inline-start: 6px;
       width: var(--tap); height: var(--tap); min-height: var(--tap);
       border: 0; border-radius: var(--radius-sm);
       background: var(--color-danger-soft);
       color: var(--color-danger);
+      z-index: 2;
     }
-    .edit-images summary {
+    .edit-attachments summary {
       cursor: pointer; list-style: none;
       font-size: 13px; font-weight: 600;
       min-height: var(--tap); display: flex; align-items: center; gap: 6px;
     }
-    .edit-images summary::after { content: '›'; color: var(--color-accent-ink); }
-    .edit-images[open] summary::after { content: '⌄'; }
+    .edit-attachments summary::after { content: '›'; color: var(--color-accent-ink); }
+    .edit-attachments[open] summary::after { content: '⌄'; }
     .edit-age-field { display: flex; align-items: baseline; gap: 8px; font-size: 12px; color: var(--color-muted); }
     .edit-age-field span:first-child { font-weight: 600; }
+
+    dialog.attachment-viewer {
+      width: 100%; max-width: 100%; height: 100dvh; max-height: 100dvh;
+      margin: 0; padding: 0; border: 0; border-radius: 0;
+      background: #111111;
+      color: #ffffff;
+    }
+    dialog.attachment-viewer::backdrop { background: #111111; }
+    .attachment-viewer-shell { height: 100%; display: grid; grid-template-rows: auto minmax(0, 1fr); }
+    .attachment-viewer-bar {
+      min-height: calc(56px + var(--safe-top));
+      display: grid;
+      grid-template-columns: var(--tap) minmax(0, 1fr) var(--tap) var(--tap);
+      align-items: end;
+      gap: 6px;
+      padding: calc(8px + var(--safe-top)) 10px 8px;
+      background: #111111;
+    }
+    .attachment-viewer-title {
+      align-self: center;
+      overflow: hidden;
+      font-size: 12px; font-weight: 600;
+      text-align: center;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .viewer-icon-btn {
+      width: var(--tap); height: var(--tap); min-height: var(--tap);
+      border: 0; border-radius: var(--radius-sm);
+      background: #292929; color: #ffffff;
+      font-size: 20px;
+    }
+    .attachment-viewer-stage {
+      min-height: 0;
+      display: grid;
+      place-items: center;
+      overflow: auto;
+      overscroll-behavior: contain;
+      touch-action: pan-x pan-y pinch-zoom;
+      background: #080808;
+    }
+    .attachment-viewer-image {
+      display: block;
+      width: auto; height: auto;
+      max-width: 100%; max-height: 100%;
+      object-fit: contain;
+      cursor: zoom-in;
+      transition: width 160ms ease;
+    }
+    .attachment-viewer-image.zoomed {
+      width: 200%; max-width: none; max-height: none;
+      cursor: zoom-out;
+    }
 
     /* ── زر الالتقاط المركزي ── */
 
@@ -857,14 +1090,14 @@
       box-shadow: var(--shadow-lg);
     }
     dialog::backdrop { background: color-mix(in srgb, #2d2b2b 50%, transparent); }
-    dialog.capture-sheet, dialog.edit-sheet {
+    dialog.capture-sheet, dialog.edit-sheet, dialog.confirm-sheet {
       width: 100%; max-width: 100%;
       margin: 0 0 0 auto;
       inset-block-end: 0; inset-block-start: auto;
       border: 0;
       border-radius: var(--radius-lg) var(--radius-lg) 0 0;
     }
-    dialog.capture-sheet .dialog-inner, dialog.edit-sheet .dialog-inner {
+    dialog.capture-sheet .dialog-inner, dialog.edit-sheet .dialog-inner, dialog.confirm-sheet .dialog-inner {
       padding: 18px 18px calc(18px + var(--safe-bottom));
     }
     .dialog-inner { max-height: 90dvh; overflow-y: auto; padding: var(--space-4); }
@@ -900,6 +1133,27 @@
       min-height: var(--tap); display: flex; align-items: center;
     }
     details.options > summary::-webkit-details-marker { display: none; }
+
+    /* ── ورقة التأكيد ── */
+
+    .confirm-text {
+      margin: 0 0 var(--space-2);
+      font-size: 14px;
+      line-height: 1.7;
+    }
+    .confirm-preview {
+      margin: 0 0 var(--space-2);
+      padding: 10px 12px;
+      border-inline-start: 3px solid var(--color-divider);
+      background: var(--color-surface);
+      border-radius: var(--radius-md);
+      font-size: 14px;
+      line-height: 1.7;
+      max-height: 96px;
+      overflow: hidden;
+      white-space: pre-wrap;
+      overflow-wrap: anywhere;
+    }
 
     /* ── الإعدادات ── */
 
@@ -959,7 +1213,7 @@
     /* ── الاستجابة ── */
 
     @media (min-width: 760px) {
-      .app-shell { padding-top: 30px; }
+      .app-shell { padding-top: calc(30px + var(--safe-top)); }
       .two-col { grid-template-columns: 1.05fr .95fr; }
       .edit-sheet .form-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
     }
@@ -1070,6 +1324,30 @@
             </div>
             <span class="count" id="entriesCount">0</span>
           </div>
+          <dl class="analysis-summary" aria-label="مؤشرات مشتقة من السجلات المحلية لآخر سبعة أيام، دون تتبع الاستخدام">
+            <div class="analysis-row" title="نسبة الالتقاطات الحديثة التي لم تعد حاليًا في مسار للنظر">
+              <dt>معدل الحسم</dt>
+              <dd><strong id="analysisResolutionRate" dir="ltr">—</strong><small id="analysisResolutionDetail">لا التقاطات جديدة</small></dd>
+            </div>
+            <div class="analysis-row">
+              <dt>أقدم عالق</dt>
+              <dd><strong id="analysisOldestAge">—</strong><small id="analysisOldestDetail">لا عوالق</small></dd>
+            </div>
+            <div class="analysis-row">
+              <dt>إنجاز أهم المهام</dt>
+              <dd><strong id="analysisTopCompletion" dir="ltr">—</strong><small id="analysisTopDetail">آخر 7 أيام</small></dd>
+            </div>
+          </dl>
+          <div class="analysis-details">
+            <details class="insight-panel" id="pathBacklogDetails">
+              <summary><span>تكدّس المسارات</span><span class="insight-summary-value" id="pathBacklogSummary">لا إدخالات</span></summary>
+              <div class="path-backlog-list" id="pathBacklogList"></div>
+            </details>
+            <details class="insight-panel" id="captureHeatmapDetails">
+              <summary><span>أوقات الالتقاط</span><span class="insight-summary-value" id="captureHeatmapSummary">آخر 90 يومًا</span></summary>
+              <div class="capture-heatmap" id="captureHeatmap" role="img" aria-label="لا توجد التقاطات في آخر 90 يومًا"></div>
+            </details>
+          </div>
           <input class="field" id="entriesSearchInput" type="search" maxlength="200" placeholder="ابحث بالكلمة أو الحرف…" autocomplete="off" aria-label="البحث في الالتقاطات">
           <div class="entries-path-filters" id="entriesPathFilters" role="group" aria-label="تصفية الالتقاطات حسب المسار"></div>
           <details class="entries-filter-options" id="entriesFilterOptions">
@@ -1171,8 +1449,8 @@
         <div class="settings-actions">
           <label class="secondary-btn small-btn file-action" for="captureCameraInput">الكاميرا</label>
           <input id="captureCameraInput" type="file" accept="image/*" capture="environment" hidden>
-          <label class="quiet-btn small-btn file-action" for="captureLibraryInput">الصور</label>
-          <input id="captureLibraryInput" type="file" accept="image/*" multiple hidden>
+          <label class="quiet-btn small-btn file-action" for="captureFileInput">إرفاق ملف</label>
+          <input id="captureFileInput" type="file" multiple hidden>
         </div>
         <div class="preview-grid" id="capturePreview"></div>
         <div class="dialog-actions">
@@ -1218,6 +1496,7 @@
           <div class="form-group">
             <label for="editPath">المسار</label>
             <select class="select-field" id="editPath"></select>
+            <span class="tiny-note" id="editPathAge">يبدأ توثيق مدة المسار مع هذه النسخة.</span>
           </div>
           <div class="form-group">
             <span class="form-label">منذ الإضافة</span>
@@ -1232,13 +1511,13 @@
           <input class="checkbox" id="editTopToday" type="checkbox">
           ★ أهم اليوم
         </label>
-        <details class="options edit-images" id="editImagesOptions">
-          <summary>الصور</summary>
+        <details class="options edit-attachments" id="editAttachmentsOptions">
+          <summary>المرفقات</summary>
           <div class="options-body">
-            <div class="preview-grid" id="editExistingImages"></div>
+            <div class="preview-grid" id="editExistingAttachments"></div>
             <div class="settings-actions">
-              <label class="quiet-btn small-btn file-action" for="editImageInput">إضافة صور</label>
-              <input id="editImageInput" type="file" accept="image/*" multiple hidden>
+              <label class="quiet-btn small-btn file-action" for="editAttachmentInput">إضافة ملفات</label>
+              <input id="editAttachmentInput" type="file" multiple hidden>
             </div>
             <div class="preview-grid" id="editNewPreview"></div>
           </div>
@@ -1248,6 +1527,35 @@
           <button type="submit" class="primary-btn">حفظ التعديل</button>
         </div>
       </form>
+    </div>
+  </dialog>
+
+  <dialog class="attachment-viewer" id="attachmentViewerDialog" aria-label="عارض الصورة">
+    <div class="attachment-viewer-shell">
+      <div class="attachment-viewer-bar">
+        <button class="viewer-icon-btn" id="attachmentViewerClose" type="button" aria-label="إغلاق العارض" title="إغلاق">×</button>
+        <div class="attachment-viewer-title" id="attachmentViewerTitle"></div>
+        <button class="viewer-icon-btn" id="attachmentViewerZoom" type="button" aria-label="تكبير الصورة" title="تكبير">+</button>
+        <button class="viewer-icon-btn" id="attachmentViewerDownload" type="button" aria-label="مشاركة أو تنزيل الصورة" title="مشاركة أو تنزيل">⇩</button>
+      </div>
+      <div class="attachment-viewer-stage" id="attachmentViewerStage">
+        <img class="attachment-viewer-image" id="attachmentViewerImage" alt="">
+      </div>
+    </div>
+  </dialog>
+
+  <dialog class="confirm-sheet" id="confirmDialog">
+    <div class="dialog-inner">
+      <div class="dialog-head">
+        <h2 id="confirmTitle">تأكيد</h2>
+        <button class="dialog-close" data-close-dialog="confirmDialog" aria-label="إغلاق">&times;</button>
+      </div>
+      <p class="confirm-text" id="confirmText"></p>
+      <blockquote class="confirm-preview" id="confirmPreview" dir="auto" hidden></blockquote>
+      <div class="dialog-actions">
+        <button type="button" class="secondary-btn" id="confirmCancel">إلغاء</button>
+        <button type="button" class="danger-btn" id="confirmAccept">حذف</button>
+      </div>
     </div>
   </dialog>
 
@@ -1277,7 +1585,7 @@
         </section>
         <section class="settings-item">
           <h3>تصدير</h3>
-          <p id="exportStatus">JSON للاستعادة الكاملة ويُقسّم تلقائيًا عند كثرة الصور، وMarkdown للقراءة.</p>
+          <p id="exportStatus">JSON للاستعادة الكاملة ويُقسّم تلقائيًا عند كثرة المرفقات، وMarkdown للقراءة.</p>
           <div class="settings-actions">
             <button class="secondary-btn small-btn" id="exportJsonButton">JSON كامل</button>
             <button class="secondary-btn small-btn" id="exportMarkdownButton">Markdown</button>
@@ -1311,7 +1619,7 @@
         </section>
         <section class="settings-item">
           <h3>الخصوصية</h3>
-          <p>لا حسابات ولا خادم. حذف بيانات الموقع من المتصفح قد يحذف النصوص والصور المحلية، لذلك اجعل JSON الكامل عادة ثابتة.</p>
+          <p>لا حسابات ولا خادم. حذف بيانات الموقع من المتصفح قد يحذف النصوص والمرفقات المحلية، لذلك اجعل JSON الكامل عادة ثابتة.</p>
         </section>
       </div>
     </div>
