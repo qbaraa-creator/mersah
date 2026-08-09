@@ -195,6 +195,7 @@
       font-size: 16px;
       line-height: 1.55;
       font-weight: 400;
+      font-variant-numeric: lining-nums;
       -webkit-font-smoothing: antialiased;
       text-rendering: optimizeLegibility;
     }
@@ -208,6 +209,11 @@
     }
 
     button, input, textarea, select { font: inherit; color: inherit; }
+    input[type="date"], input[type="month"] {
+      direction: ltr;
+      unicode-bidi: isolate;
+      font-variant-numeric: tabular-nums;
+    }
     button {
       cursor: pointer;
       touch-action: manipulation;
@@ -265,12 +271,12 @@
     }
     .brand p {
       margin: 0;
-      font-size: 15px;
+      font-size: 16px;
       color: var(--color-muted);
       line-height: 1.55;
     }
     .brand .year-progress {
-      font-size: 12px;
+      font-size: 13px;
       font-variant-numeric: tabular-nums;
     }
 
@@ -357,10 +363,21 @@
       min-width: 0; flex: 1;
     }
     .direction-summary-label {
-      font-size: 13px; color: var(--color-muted);
+      font-size: 14px; font-weight: 600; color: var(--color-muted);
       flex: none; white-space: nowrap;
     }
-    .direction-compass { font-size: 16px; }
+    .direction-summary:not(.has-direction) .direction-summary-label {
+      font-size: 17px;
+      color: var(--color-text);
+    }
+    .direction-compass {
+      display: inline-block;
+      margin-inline-end: 6px;
+      color: var(--color-accent-ink);
+      font-family: var(--font-body);
+      font-size: 22px;
+      line-height: 1;
+    }
     .direction-summary-value {
       font-size: 17px; font-weight: 600;
       line-height: 1.65;
@@ -427,7 +444,7 @@
       min-height: var(--tap); cursor: pointer; font-size: 16px;
     }
     .checkbox { width: 22px; height: 22px; flex: none; accent-color: var(--color-accent-ink); }
-    .tiny-note { font-size: 12px; color: var(--color-muted); line-height: 1.5; }
+    .tiny-note { font-size: 13px; color: var(--color-muted); line-height: 1.55; }
 
     .inline-form, .entries-filter-grid, .form-grid {
       display: grid;
@@ -660,7 +677,7 @@
       white-space: nowrap;
     }
     .analysis-row strong { font-size: 16px; font-weight: 600; font-variant-numeric: tabular-nums; }
-    .analysis-row small { font-size: 11px; color: var(--color-muted); }
+    .analysis-row small { font-size: 12px; color: var(--color-muted); }
 
     .insight-panel { border-block-end: 1px solid var(--color-hairline); }
     .insight-panel > summary {
@@ -671,7 +688,7 @@
       gap: 8px;
       cursor: pointer;
       list-style: none;
-      font-size: 12px;
+      font-size: 13px;
       font-weight: 600;
     }
     .insight-panel > summary::-webkit-details-marker { display: none; }
@@ -685,7 +702,7 @@
       min-width: 0;
       overflow: hidden;
       color: var(--color-muted);
-      font-size: 11px;
+      font-size: 12px;
       font-weight: 400;
       text-overflow: ellipsis;
       white-space: nowrap;
@@ -701,7 +718,7 @@
       align-items: center;
       gap: 8px;
       cursor: pointer;
-      font-size: 11px;
+      font-size: 12px;
     }
     .path-backlog-name { display: inline-flex; align-items: center; gap: 5px; font-weight: 600; }
     .path-backlog-name span:first-child { color: var(--path-color); font-size: 19px; }
@@ -729,7 +746,7 @@
       direction: rtl;
     }
     .heatmap-row + .heatmap-row { margin-block-start: 2px; }
-    .heatmap-day { color: var(--color-muted); font-size: 9px; text-align: start; }
+    .heatmap-day { color: var(--color-muted); font-size: 12px; text-align: start; }
     .heatmap-cell {
       aspect-ratio: 1;
       min-width: 0;
@@ -740,7 +757,7 @@
     .heatmap-cell.level-2 { background: color-mix(in srgb, var(--color-accent-ink) 48%, transparent); }
     .heatmap-cell.level-3 { background: color-mix(in srgb, var(--color-accent-ink) 70%, transparent); }
     .heatmap-cell.level-4 { background: var(--color-accent-ink); }
-    .heatmap-axis { margin-block-start: 4px; color: var(--color-muted); font-size: 8px; }
+    .heatmap-axis { margin-block-start: 4px; color: var(--color-muted); font-size: 11px; }
     .heatmap-axis span { grid-column: auto / span 1; text-align: center; }
     .heatmap-axis .axis-spacer { grid-column: 1; }
     .heatmap-axis .hour-0 { grid-column: 2; }
@@ -867,9 +884,9 @@
       background: var(--color-surface);
       color: var(--color-text);
     }
-    .day-button .weekday { display: block; font-size: 13px; font-weight: 600; }
+    .day-button .weekday { display: block; font-size: 14px; font-weight: 600; }
     .day-button strong { display: block; font-size: 19px; font-weight: 600; margin: 2px 0; font-variant-numeric: tabular-nums; }
-    .day-button .count { display: block; font-size: 12px; color: var(--color-muted); }
+    .day-button .count { display: block; font-size: 13px; color: var(--color-muted); }
     .day-button.active { background: var(--color-accent-ink); color: var(--color-on-accent); }
     .day-button.active .weekday, .day-button.active .count { color: var(--color-on-accent); opacity: .85; }
 
@@ -886,7 +903,7 @@
       position: relative;
     }
     .archive-month-picker strong { font-size: 17px; font-weight: 600; }
-    .archive-month-picker span { font-size: 13px; color: var(--color-muted); font-variant-numeric: tabular-nums; }
+    .archive-month-picker span { font-size: 14px; color: var(--color-muted); font-variant-numeric: tabular-nums; }
     .archive-month-picker input {
       position: absolute; inset: 0; opacity: 0; cursor: pointer;
       width: 100%; height: 100%;
@@ -983,7 +1000,7 @@
       text-overflow: ellipsis;
       white-space: nowrap;
     }
-    .attachment-file-size { display: block; margin-block-start: 2px; color: var(--color-muted); font-size: 12px; }
+    .attachment-file-size { display: block; margin-block-start: 2px; color: var(--color-muted); font-size: 13px; }
     .attachment-file-action { color: var(--color-accent-ink); font-size: 20px; }
     .attachment-remove {
       position: absolute;
@@ -1001,8 +1018,6 @@
     }
     .edit-attachments summary::after { content: '›'; color: var(--color-accent-ink); }
     .edit-attachments[open] summary::after { content: '⌄'; }
-    .edit-age-field { display: flex; align-items: baseline; gap: 8px; font-size: 14px; color: var(--color-muted); }
-    .edit-age-field span:first-child { font-weight: 600; }
 
     dialog.attachment-viewer {
       width: 100%; max-width: 100%; height: 100dvh; max-height: 100dvh;
@@ -1055,6 +1070,57 @@
     .attachment-viewer-image.zoomed {
       width: 200%; max-width: none; max-height: none;
       cursor: zoom-out;
+    }
+    dialog.file-viewer {
+      width: 100%; max-width: 100%; height: 100dvh; max-height: 100dvh;
+      margin: 0; padding: 0; border: 0; border-radius: 0;
+      background: var(--color-bg);
+      color: var(--color-text);
+    }
+    .file-viewer-shell {
+      height: 100%;
+      display: grid;
+      grid-template-rows: auto auto minmax(0, 1fr);
+    }
+    .file-viewer-bar {
+      min-height: calc(56px + var(--safe-top));
+      display: grid;
+      grid-template-columns: var(--tap) minmax(0, 1fr) var(--tap);
+      align-items: end;
+      gap: 6px;
+      padding: calc(8px + var(--safe-top)) 10px 8px;
+      border-block-end: 1px solid var(--color-divider);
+      background: var(--color-surface);
+    }
+    .file-viewer-title {
+      align-self: center;
+      overflow: hidden;
+      font-size: 15px;
+      font-weight: 600;
+      text-align: center;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .file-viewer-note {
+      margin: 0;
+      padding: 9px 14px;
+      border-block-end: 1px solid var(--color-hairline);
+      color: var(--color-muted);
+      font-size: 13px;
+      line-height: 1.55;
+    }
+    .file-viewer-text {
+      min-height: 0;
+      margin: 0;
+      padding: 16px;
+      overflow: auto;
+      color: var(--color-text);
+      font-family: var(--font-body);
+      font-size: 16px;
+      line-height: 1.8;
+      white-space: pre-wrap;
+      overflow-wrap: anywhere;
+      unicode-bidi: plaintext;
     }
 
     /* ── زر الالتقاط المركزي ── */
@@ -1154,8 +1220,93 @@
       display: flex; justify-content: space-between;
       gap: var(--space-2); flex-wrap: wrap; margin-top: var(--space-3);
     }
-    .edit-sheet-actions { display: flex; justify-content: space-between; gap: var(--space-2); flex-wrap: wrap; }
-    .edit-sheet .form-grid { grid-template-columns: 1fr; }
+    .edit-form { display: grid; gap: 0; }
+    .edit-section {
+      display: grid;
+      gap: 12px;
+      padding-block: 14px;
+      border-block-end: 1px solid var(--color-hairline);
+    }
+    .edit-section:first-of-type { padding-block-start: 2px; }
+    .edit-section-head {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: var(--space-2);
+    }
+    .edit-text-toolbar { justify-content: flex-end; }
+    .edit-section-head h3, .edit-section > h3 {
+      margin: 0;
+      font-size: 16px;
+      font-weight: 600;
+    }
+    .edit-section-head .tiny-note { display: block; margin-block-start: 3px; }
+    .edit-text-toggle {
+      all: unset;
+      box-sizing: border-box;
+      flex: none;
+      width: var(--tap);
+      height: var(--tap);
+      display: grid;
+      place-items: center;
+      border: 1px solid var(--color-divider);
+      border-radius: var(--radius-md);
+      color: var(--color-accent-ink);
+      cursor: pointer;
+      font-size: 20px;
+      font-weight: 600;
+    }
+    .edit-text-toggle[aria-pressed="true"] {
+      border-color: var(--color-accent-ink);
+      background: var(--color-accent-soft);
+    }
+    textarea.edit-text-field {
+      min-height: 128px;
+      padding: 12px 13px;
+      font-size: 17px;
+      font-weight: 600;
+      line-height: 1.75;
+      resize: vertical;
+    }
+    textarea.edit-text-field[readonly] {
+      border-color: var(--color-hairline);
+      background: color-mix(in srgb, var(--color-surface) 64%, transparent);
+      cursor: default;
+    }
+    textarea.edit-text-field.is-unlocked { border-color: var(--color-accent-ink); }
+    .edit-organize-grid { display: grid; grid-template-columns: 1fr; gap: 12px; }
+    .edit-age-field {
+      min-height: var(--tap);
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      color: var(--color-muted);
+      font-size: 14px;
+    }
+    .edit-age-field strong { color: var(--color-text); font-size: 15px; }
+    .edit-top-toggle {
+      padding-block-start: 8px;
+      border-block-start: 1px solid var(--color-hairline);
+    }
+    .edit-sheet .edit-attachments {
+      border-radius: 0;
+      background: transparent;
+    }
+    .edit-sheet .edit-attachments > summary { padding-inline: 0; }
+    .edit-sheet .edit-attachments .options-body { padding-inline: 0; }
+    .edit-sheet-actions {
+      position: sticky;
+      z-index: 2;
+      bottom: calc(-18px - var(--safe-bottom));
+      display: flex;
+      justify-content: space-between;
+      gap: var(--space-2);
+      margin-top: 0;
+      padding: 12px 0 calc(18px + var(--safe-bottom));
+      background: var(--color-bg);
+      border-block-start: 1px solid var(--color-divider);
+    }
+    .edit-sheet-actions > button { flex: 1; }
 
     .entry-details-text {
       margin: 0;
@@ -1176,10 +1327,10 @@
       padding: 10px 6px;
     }
     .entry-details-fact + .entry-details-fact { border-inline-start: 1px solid var(--color-hairline); }
-    .entry-details-fact dt { color: var(--color-muted); font-size: 12px; }
+    .entry-details-fact dt { color: var(--color-muted); font-size: 13px; }
     .entry-details-fact dd {
       margin: 3px 0 0;
-      font-size: 14px;
+      font-size: 15px;
       font-weight: 600;
       line-height: 1.55;
       overflow-wrap: anywhere;
@@ -1211,7 +1362,7 @@
     .entry-event-label { font-size: 14px; line-height: 1.55; }
     .entry-event-time {
       color: var(--color-muted);
-      font-size: 12px;
+      font-size: 13px;
       font-variant-numeric: tabular-nums;
     }
     .trash-sheet .tiny-note { margin: -6px 0 2px; }
@@ -1245,7 +1396,7 @@
     }
     .trash-entry-meta {
       color: var(--color-muted);
-      font-size: 12px;
+      font-size: 13px;
       line-height: 1.55;
       font-variant-numeric: tabular-nums;
     }
@@ -1363,7 +1514,7 @@
     @media (min-width: 760px) {
       .app-shell { padding-top: calc(30px + var(--safe-top)); }
       .two-col { grid-template-columns: 1.05fr .95fr; }
-      .edit-sheet .form-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .edit-organize-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
     }
 
     @media (max-width: 560px) {
@@ -1371,6 +1522,12 @@
       .inline-form, .entries-filter-grid, .form-grid, .form-grid.three { grid-template-columns: 1fr; }
       .entries-filter-grid .filter-clear { grid-column: auto; }
       .inline-form { grid-template-columns: 1fr auto; }
+      .entries-path-filters {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        overflow-x: visible;
+      }
+      .entries-path-button { min-width: 0; }
       .settings-actions > button, .settings-actions > label { flex: 1 1 140px; }
     }
 
@@ -1411,8 +1568,8 @@
           <div class="today-focus-line">
             <button class="direction-summary" id="directionButton" type="button">
               <span class="direction-summary-copy">
-                <span class="direction-summary-label"><span class="direction-compass" aria-hidden="true">🧭</span>توجّه اليوم</span>
-                <span class="direction-summary-value" id="directionDisplay" dir="auto">حدد توجّه اليوم</span>
+                <span class="direction-summary-label"><span class="direction-compass" aria-hidden="true">⛵︎</span>توجّه اليوم</span>
+                <span class="direction-summary-value" id="directionDisplay" dir="auto" hidden></span>
               </span>
               <span class="direction-summary-arrow" aria-hidden="true">‹</span>
             </button>
@@ -1434,10 +1591,7 @@
 
         <section class="panel stack">
           <div class="section-head">
-            <div>
-              <h2>سجل اليوم</h2>
-              <p>كل ما أُنشئ اليوم، الأحدث أولًا.</p>
-            </div>
+            <h2>سجل اليوم</h2>
           </div>
           <div class="card-list" id="todayTimeline"></div>
           <button class="quiet-btn" id="loadMoreTodayButton" hidden>عرض إدخالات أقدم</button>
@@ -1486,11 +1640,11 @@
             <div class="entries-filter-grid">
               <div class="form-group">
                 <label for="entriesDateFrom">من</label>
-                <input class="field" id="entriesDateFrom" type="date">
+                <input class="field" id="entriesDateFrom" type="date" lang="en-GB" dir="ltr">
               </div>
               <div class="form-group">
                 <label for="entriesDateTo">إلى</label>
-                <input class="field" id="entriesDateTo" type="date">
+                <input class="field" id="entriesDateTo" type="date" lang="en-GB" dir="ltr">
               </div>
               <div class="form-group">
                 <label for="entriesSort">الترتيب</label>
@@ -1523,7 +1677,7 @@
               <label class="archive-month-picker" for="archiveMonthInput">
                 <strong id="archiveMonthLabel"></strong>
                 <span id="archiveMonthNumeric"></span>
-                <input id="archiveMonthInput" type="month" aria-label="اختر شهر الأرشيف">
+                <input id="archiveMonthInput" type="month" lang="en-GB" dir="ltr" aria-label="اختر شهر الأرشيف">
               </label>
               <button class="archive-month-button" id="archiveNextMonthButton" type="button" aria-label="الشهر التالي" title="الشهر التالي">‹</button>
             </div>
@@ -1542,7 +1696,7 @@
             <div class="form-group">
               <label for="selectedDayDirection">توجّه اليوم</label>
               <p class="archived-direction" id="selectedDayDirectionDisplay" dir="auto" hidden></p>
-              <textarea class="field direction-field" id="selectedDayDirection" maxlength="500" rows="6" dir="auto"></textarea>
+              <textarea class="field direction-field" id="selectedDayDirection" maxlength="500" rows="4" dir="auto"></textarea>
               <span class="tiny-note" id="selectedDayDirectionStatus"></span>
             </div>
             <div id="selectedDayContent" class="stack"></div>
@@ -1631,45 +1785,48 @@
   <dialog class="edit-sheet" id="editDialog">
     <div class="dialog-inner">
       <div class="dialog-head">
-        <h2>تحرير الإدخال</h2>
+        <h2>تحرير الالتقاطة</h2>
         <button class="dialog-close" data-close-dialog="editDialog" aria-label="إغلاق">×</button>
       </div>
-      <form id="editForm" class="stack">
+      <form id="editForm" class="edit-form">
         <input type="hidden" id="editEntryId">
-        <div class="form-group">
-          <label for="editText">النص</label>
-          <textarea class="field" id="editText" rows="5" dir="auto" maxlength="5000"></textarea>
-        </div>
-        <div class="form-grid">
+        <section class="edit-section">
+          <div class="edit-section-head edit-text-toolbar">
+            <button class="edit-text-toggle" id="editTextUnlockButton" type="button" aria-label="تعديل النص" title="تعديل النص" aria-pressed="false">✎</button>
+          </div>
+          <textarea class="field edit-text-field" id="editText" rows="4" dir="auto" maxlength="5000" readonly aria-label="نص الالتقاطة"></textarea>
+        </section>
+        <section class="edit-section">
+          <div class="edit-age-field" id="editEntryAge"><span aria-hidden="true">⏳</span><strong>اليوم</strong></div>
+          <div class="edit-organize-grid">
           <div class="form-group">
             <label for="editPath">المسار</label>
             <select class="select-field" id="editPath"></select>
             <span class="tiny-note" id="editPathAge">يبدأ توثيق مدة المسار مع هذه النسخة.</span>
           </div>
           <div class="form-group">
-            <span class="form-label">منذ الإضافة</span>
-            <div class="edit-age-field" id="editEntryAge"><span aria-hidden="true">⏳</span><strong>اليوم</strong></div>
+            <label for="editDueDate">موعد التنفيذ</label>
+            <input class="field" id="editDueDate" type="date" lang="en-GB" dir="ltr">
           </div>
-        </div>
-        <div class="form-group">
-          <label for="editDueDate">موعد التنفيذ</label>
-          <input class="field" id="editDueDate" type="date">
-        </div>
-        <label class="check-label">
-          <input class="checkbox" id="editTopToday" type="checkbox">
-          ★ أهم اليوم
-        </label>
-        <details class="options edit-attachments" id="editAttachmentsOptions">
-          <summary>المرفقات</summary>
-          <div class="options-body">
-            <div class="preview-grid" id="editExistingAttachments"></div>
-            <div class="settings-actions">
-              <label class="quiet-btn small-btn file-action" for="editAttachmentInput">إضافة ملفات</label>
-              <input id="editAttachmentInput" type="file" multiple hidden>
+          </div>
+          <label class="check-label edit-top-toggle">
+            <input class="checkbox" id="editTopToday" type="checkbox">
+            ★ أهم اليوم
+          </label>
+        </section>
+        <section class="edit-section">
+          <details class="options edit-attachments" id="editAttachmentsOptions">
+            <summary>المرفقات</summary>
+            <div class="options-body">
+              <div class="preview-grid" id="editExistingAttachments"></div>
+              <div class="settings-actions">
+                <label class="quiet-btn small-btn file-action" for="editAttachmentInput">إضافة ملفات</label>
+                <input id="editAttachmentInput" type="file" multiple hidden>
+              </div>
+              <div class="preview-grid" id="editNewPreview"></div>
             </div>
-            <div class="preview-grid" id="editNewPreview"></div>
-          </div>
-        </details>
+          </details>
+        </section>
         <div class="dialog-actions edit-sheet-actions">
           <button type="button" class="danger-btn" id="editDeleteButton">حذف</button>
           <button type="submit" class="primary-btn">حفظ التعديل</button>
@@ -1732,6 +1889,18 @@
       <div class="attachment-viewer-stage" id="attachmentViewerStage">
         <img class="attachment-viewer-image" id="attachmentViewerImage" alt="">
       </div>
+    </div>
+  </dialog>
+
+  <dialog class="file-viewer" id="fileViewerDialog" aria-label="عارض الملف النصي">
+    <div class="file-viewer-shell">
+      <div class="file-viewer-bar">
+        <button class="viewer-icon-btn" id="fileViewerClose" type="button" aria-label="إغلاق عارض الملف" title="إغلاق">×</button>
+        <div class="file-viewer-title" id="fileViewerTitle"></div>
+        <button class="viewer-icon-btn" id="fileViewerDownload" type="button" aria-label="فتح أو مشاركة الملف" title="فتح أو مشاركة">⇩</button>
+      </div>
+      <p class="file-viewer-note" id="fileViewerNote"></p>
+      <pre class="file-viewer-text" id="fileViewerText" dir="auto"></pre>
     </div>
   </dialog>
 

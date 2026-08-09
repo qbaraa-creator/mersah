@@ -24,6 +24,7 @@ const BACKUP_SCHEMA_VERSION = 4;
 const MAX_ATTACHMENT_BYTES = 20 * 1024 * 1024;
 const MAX_IMAGE_SOURCE_BYTES = 50 * 1024 * 1024;
 const MAX_ATTACHMENTS_PER_ENTRY = 30;
+const MAX_TEXT_PREVIEW_BYTES = 2 * 1024 * 1024;
 const MAX_IMAGE_EDGE = 1600;
 const JPEG_QUALITY = 0.82;
 const MAX_FUTURE_DRIFT_MS = DAY;
@@ -123,6 +124,7 @@ let editRemovedAttachmentIds = new Set();
 let attachmentUrlCache = new Map();
 let activeViewerAttachment = null;
 let activeViewerTemporaryUrl = null;
+let activeFileViewerAttachment = null;
 let activeDetailsEntryId = null;
 let observedDayKey = dateKey();
 let toastTimer;
@@ -204,6 +206,7 @@ const elements = {
   editForm: $('#editForm'),
   editEntryId: $('#editEntryId'),
   editText: $('#editText'),
+  editTextUnlockButton: $('#editTextUnlockButton'),
   editPath: $('#editPath'),
   editPathAge: $('#editPathAge'),
   editDueDate: $('#editDueDate'),
@@ -221,6 +224,12 @@ const elements = {
   attachmentViewerDownload: $('#attachmentViewerDownload'),
   attachmentViewerStage: $('#attachmentViewerStage'),
   attachmentViewerImage: $('#attachmentViewerImage'),
+  fileViewerDialog: $('#fileViewerDialog'),
+  fileViewerClose: $('#fileViewerClose'),
+  fileViewerTitle: $('#fileViewerTitle'),
+  fileViewerNote: $('#fileViewerNote'),
+  fileViewerText: $('#fileViewerText'),
+  fileViewerDownload: $('#fileViewerDownload'),
   entryDetailsDialog: $('#entryDetailsDialog'),
   entryDetailsText: $('#entryDetailsText'),
   entryDetailsCreated: $('#entryDetailsCreated'),
@@ -556,16 +565,18 @@ function formatEntryTime(entry) {
   return formatTime(entry?.createdAt);
 }
 
-function formatDayMonth(key) {
+function formatHeaderDayMonth(key) {
   return new Intl.DateTimeFormat('ar-SA-u-ca-gregory-nu-latn', {
     day: 'numeric',
     month: 'long'
   }).format(dateFromKey(key));
 }
 
-function formatDayMonthNumeric(key) {
-  const date = dateFromKey(key);
-  return `${pad(date.getDate())}/${pad(date.getMonth() + 1)}`;
+function formatNumber(value, minimumIntegerDigits = 1) {
+  return new Intl.NumberFormat('ar-SA-u-nu-latn', {
+    useGrouping: false,
+    minimumIntegerDigits
+  }).format(value);
 }
 
 function formatMonthLabel(key) {
@@ -623,7 +634,7 @@ function relativeDayLabel(key) {
   if (difference === 1) return 'أمس';
   if (difference === -1) return 'غدًا';
   if (Math.abs(difference) <= 6) {
-    return new Intl.RelativeTimeFormat('ar', { numeric: 'always' }).format(-difference, 'day');
+    return new Intl.RelativeTimeFormat('ar-u-nu-latn', { numeric: 'always' }).format(-difference, 'day');
   }
   return formatDateKey(target);
 }
@@ -940,9 +951,10 @@ function renderCurrentView() {
 
 function renderHeaderDate() {
   const today = dateKey();
+  const date = dateFromKey(today);
   const progress = yearProgressFor(today);
-  elements.brandToday.textContent = `${dayName(today)} ${formatDayMonth(today)} · ${formatDayMonthNumeric(today)}`;
-  elements.yearProgress.textContent = `اليوم ${progress.ordinal} من ${progress.total} · بقي ${progress.remaining}`;
+  elements.brandToday.textContent = `${dayName(today)} ${formatHeaderDayMonth(today)} · ${formatNumber(date.getMonth() + 1)}`;
+  elements.yearProgress.textContent = `اليوم ${formatNumber(progress.ordinal)} · بقي ${formatNumber(progress.remaining)}`;
 }
 
 function yearProgressFor(key) {
@@ -979,7 +991,11 @@ function renderToday() {
   const record = dailyRecordFor(today);
   const top = topEntriesFor(today);
   renderTopProgress(top);
-  elements.directionDisplay.textContent = record?.direction || 'حدد توجّه اليوم';
+  const direction = String(record?.direction || '').trim();
+  elements.directionDisplay.textContent = direction;
+  elements.directionDisplay.hidden = !direction;
+  elements.directionButton.classList.toggle('has-direction', Boolean(direction));
+  elements.directionButton.setAttribute('aria-label', direction ? `توجّه اليوم: ${direction}` : 'توجّه اليوم');
   elements.addTopTaskButton.disabled = top.length >= 3;
   elements.openTopTaskDialog.hidden = top.length >= 3;
   if (top.length >= 3 && elements.topTaskDialog.open) elements.topTaskDialog.close();
@@ -1002,10 +1018,7 @@ function renderTopProgress(top) {
 
 function renderTopTasks(dayKey, top) {
   if (!top.length) {
-    const empty = document.createElement('div');
-    empty.className = 'top-empty';
-    empty.textContent = 'لا مهام';
-    elements.topTasksList.replaceChildren(empty);
+    elements.topTasksList.replaceChildren();
   } else {
     elements.topTasksList.replaceChildren(...top.map(entry => createTopTaskElement(entry, dayKey)));
   }
@@ -1827,6 +1840,19 @@ function isPreviewableImage(attachment) {
   return type.startsWith('image/') && type !== 'image/svg+xml';
 }
 
+function attachmentExtension(attachment) {
+  const name = safeAttachmentName(attachment?.name, '');
+  const dot = name.lastIndexOf('.');
+  return dot >= 0 ? name.slice(dot + 1).toLowerCase() : '';
+}
+
+function isPreviewableText(attachment) {
+  const type = normalizedAttachmentType(attachment?.type || attachment?.blob?.type);
+  const extension = attachmentExtension(attachment);
+  return ['text/plain', 'text/markdown', 'text/csv', 'application/json'].includes(type)
+    || ['txt', 'md', 'markdown', 'csv', 'json', 'log'].includes(extension);
+}
+
 function attachmentBadge(attachment) {
   const type = normalizedAttachmentType(attachment?.type || attachment?.blob?.type);
   const extension = safeAttachmentName(attachment?.name, '').split('.').pop()?.toUpperCase() || '';
@@ -1871,7 +1897,8 @@ function createAttachmentTile(attachment, { temporary = false, removeHandler = n
     open.type = 'button';
     open.className = 'attachment-file-open';
     const name = safeAttachmentName(attachment.name);
-    open.setAttribute('aria-label', `مشاركة أو تنزيل المرفق ${name}`);
+    const previewableText = isPreviewableText(attachment);
+    open.setAttribute('aria-label', `${previewableText ? 'عرض' : 'فتح أو مشاركة'} المرفق ${name}`);
     const badge = document.createElement('span');
     badge.className = 'attachment-file-badge';
     badge.textContent = attachmentBadge(attachment);
@@ -1887,10 +1914,13 @@ function createAttachmentTile(attachment, { temporary = false, removeHandler = n
     copy.append(nameNode, size);
     const action = document.createElement('span');
     action.className = 'attachment-file-action';
-    action.textContent = '⇩';
+    action.textContent = previewableText ? '⌕' : '⇩';
     action.setAttribute('aria-hidden', 'true');
     open.append(badge, copy, action);
-    open.addEventListener('click', () => shareOrDownloadAttachment(attachment));
+    open.addEventListener('click', () => {
+      if (previewableText) openTextFileViewer(attachment);
+      else shareOrDownloadAttachment(attachment);
+    });
     wrap.append(open);
   }
 
@@ -1900,7 +1930,15 @@ function createAttachmentTile(attachment, { temporary = false, removeHandler = n
     remove.className = 'attachment-remove';
     remove.textContent = '×';
     remove.setAttribute('aria-label', `إزالة المرفق ${safeAttachmentName(attachment.name)}`);
-    remove.addEventListener('click', () => removeHandler(attachment.id));
+    remove.addEventListener('click', async () => {
+      if (remove.disabled) return;
+      remove.disabled = true;
+      try {
+        await removeHandler(attachment.id);
+      } finally {
+        if (remove.isConnected) remove.disabled = false;
+      }
+    });
     wrap.append(remove);
   }
   return wrap;
@@ -1951,6 +1989,36 @@ function toggleImageViewerZoom() {
   elements.attachmentViewerZoom.setAttribute('aria-label', zoomed ? 'تصغير الصورة' : 'تكبير الصورة');
   elements.attachmentViewerZoom.title = zoomed ? 'تصغير' : 'تكبير';
   if (!zoomed) elements.attachmentViewerStage.scrollTo(0, 0);
+}
+
+async function openTextFileViewer(attachment) {
+  if (!isPreviewableText(attachment) || !(attachment?.blob instanceof Blob)) return;
+  const name = safeAttachmentName(attachment.name);
+  const truncated = attachment.blob.size > MAX_TEXT_PREVIEW_BYTES;
+  try {
+    const text = await attachment.blob.slice(0, MAX_TEXT_PREVIEW_BYTES).text();
+    activeFileViewerAttachment = attachment;
+    elements.fileViewerTitle.textContent = name;
+    elements.fileViewerText.textContent = text || 'الملف فارغ.';
+    elements.fileViewerNote.textContent = truncated
+      ? `تُعرض أول ${formatBytes(MAX_TEXT_PREVIEW_BYTES)} فقط. افتح الملف خارجيًا لقراءته كاملًا.`
+      : 'معاينة نصية آمنة للقراءة فقط.';
+    elements.fileViewerDialog.showModal();
+    elements.fileViewerClose.focus();
+  } catch (error) {
+    showToast('تعذرت معاينة الملف؛ يمكنك فتحه خارجيًا.');
+  }
+}
+
+function closeTextFileViewer() {
+  if (elements.fileViewerDialog.open) elements.fileViewerDialog.close();
+}
+
+function resetTextFileViewer() {
+  activeFileViewerAttachment = null;
+  elements.fileViewerTitle.textContent = '';
+  elements.fileViewerNote.textContent = '';
+  elements.fileViewerText.textContent = '';
 }
 
 async function shareOrDownloadAttachment(attachment) {
@@ -2497,12 +2565,25 @@ function renderAttachmentPreview(container, list, removeHandler) {
   })));
 }
 
-function removeCaptureDraftAttachment(id) {
+async function confirmAttachmentRemoval(attachment, message) {
+  return askConfirm({
+    title: 'إزالة المرفق',
+    message,
+    preview: safeAttachmentName(attachment?.name),
+    accept: 'إزالة'
+  });
+}
+
+async function removeCaptureDraftAttachment(id) {
+  const attachment = captureDraftAttachments.find(item => item.id === id);
+  if (!attachment || !await confirmAttachmentRemoval(attachment, 'سيُزال هذا المرفق من الالتقاطة الجديدة.')) return;
   captureDraftAttachments = captureDraftAttachments.filter(item => item.id !== id);
   renderAttachmentPreview(elements.capturePreview, captureDraftAttachments, removeCaptureDraftAttachment);
 }
 
-function removeEditNewAttachment(id) {
+async function removeEditNewAttachment(id) {
+  const attachment = editNewAttachments.find(item => item.id === id);
+  if (!attachment || !await confirmAttachmentRemoval(attachment, 'سيُزال هذا المرفق المضاف قبل حفظ التعديل.')) return;
   editNewAttachments = editNewAttachments.filter(item => item.id !== id);
   renderAttachmentPreview(elements.editNewPreview, editNewAttachments, removeEditNewAttachment);
 }
@@ -2514,6 +2595,7 @@ function openEditDialog(entryId) {
   editRemovedAttachmentIds = new Set();
   elements.editEntryId.value = entry.id;
   elements.editText.value = entry.text || '';
+  setEditTextUnlocked(false);
   elements.editPath.value = hasOwn(ROUTABLE_PATHS, entry.path) ? entry.path : 'consider';
   updateEditPathAgeHint(entry);
   elements.editDueDate.value = entry.dueDate || '';
@@ -2523,7 +2605,17 @@ function openEditDialog(entryId) {
   renderExistingAttachments(entry.id);
   renderAttachmentPreview(elements.editNewPreview, editNewAttachments, removeEditNewAttachment);
   elements.editDialog.showModal();
-  setTimeout(() => elements.editText.focus(), 80);
+  setTimeout(() => elements.editTextUnlockButton.focus(), 80);
+}
+
+function setEditTextUnlocked(unlocked, { focus = false } = {}) {
+  elements.editText.readOnly = !unlocked;
+  elements.editText.classList.toggle('is-unlocked', unlocked);
+  elements.editTextUnlockButton.textContent = unlocked ? '✓' : '✎';
+  elements.editTextUnlockButton.setAttribute('aria-pressed', String(unlocked));
+  elements.editTextUnlockButton.setAttribute('aria-label', unlocked ? 'إنهاء تعديل النص' : 'تعديل النص');
+  elements.editTextUnlockButton.title = unlocked ? 'إنهاء تعديل النص' : 'تعديل النص';
+  if (unlocked && focus) setTimeout(() => elements.editText.focus(), 40);
 }
 
 function updateEditPathAgeHint(entry) {
@@ -2545,7 +2637,9 @@ function renderExistingAttachments(entryId) {
     return;
   }
   elements.editExistingAttachments.replaceChildren(...list.map(item => createAttachmentTile(item, {
-    removeHandler: () => {
+    removeHandler: async () => {
+      const confirmed = await confirmAttachmentRemoval(item, 'سيُحذف هذا المرفق عند حفظ التعديل. لا يمكن استعادته بعد الحفظ.');
+      if (!confirmed) return;
       editRemovedAttachmentIds.add(item.id);
       renderExistingAttachments(entryId);
     }
@@ -4132,6 +4226,9 @@ function bindEvents() {
   });
   elements.selectedDayDirection.addEventListener('input', scheduleSelectedDirectionSave);
   elements.editForm.addEventListener('submit', handleEditSubmit);
+  elements.editTextUnlockButton.addEventListener('click', () => {
+    setEditTextUnlocked(elements.editText.readOnly, { focus: elements.editText.readOnly });
+  });
   elements.editPath.addEventListener('change', () => {
     updateEditPathAgeHint(entries.find(entry => entry.id === elements.editEntryId.value));
   });
@@ -4155,6 +4252,11 @@ function bindEvents() {
     if (activeViewerAttachment) shareOrDownloadAttachment(activeViewerAttachment);
   });
   elements.attachmentViewerDialog.addEventListener('close', resetImageViewer);
+  elements.fileViewerClose.addEventListener('click', closeTextFileViewer);
+  elements.fileViewerDownload.addEventListener('click', () => {
+    if (activeFileViewerAttachment) shareOrDownloadAttachment(activeFileViewerAttachment);
+  });
+  elements.fileViewerDialog.addEventListener('close', resetTextFileViewer);
   elements.requestPersistenceButton.addEventListener('click', requestPersistence);
   elements.exportJsonButton.addEventListener('click', () => runExport(exportJson, 'لم تُحفظ نسخة JSON.'));
   elements.exportMarkdownButton.addEventListener('click', () => runExport(exportMarkdown, 'لم يُحفظ ملف Markdown.'));
@@ -4170,7 +4272,7 @@ function bindEvents() {
     document.getElementById(button.dataset.closeDialog)?.close();
   }));
   [elements.topTaskDialog, elements.captureDialog, elements.directionDialog, elements.editDialog,
-    elements.entryDetailsDialog, elements.trashDialog, elements.settingsDialog].forEach(dialog => {
+    elements.entryDetailsDialog, elements.fileViewerDialog, elements.trashDialog, elements.settingsDialog].forEach(dialog => {
     dialog.addEventListener('click', event => {
       if (event.target === dialog) dialog.close();
     });
