@@ -1202,6 +1202,7 @@
     dialog.trash-sheet .dialog-inner {
       padding: 18px 18px calc(18px + var(--safe-bottom));
     }
+    dialog.edit-sheet .dialog-inner { padding: 14px 16px calc(14px + var(--safe-bottom)); }
     .dialog-inner { max-height: 90dvh; overflow-y: auto; padding: var(--space-4); }
     .dialog-head {
       display: flex; align-items: center; justify-content: space-between;
@@ -1220,21 +1221,22 @@
       display: flex; justify-content: space-between;
       gap: var(--space-2); flex-wrap: wrap; margin-top: var(--space-3);
     }
+    .edit-sheet .dialog-head { margin-bottom: 4px; }
+    .edit-sheet .dialog-head h2 { font-size: 20px; }
     .edit-form { display: grid; gap: 0; }
     .edit-section {
       display: grid;
-      gap: 12px;
-      padding-block: 14px;
+      gap: 8px;
+      padding-block: 10px;
       border-block-end: 1px solid var(--color-hairline);
     }
-    .edit-section:first-of-type { padding-block-start: 2px; }
+    .edit-section:first-of-type { padding-block-start: 4px; }
     .edit-section-head {
       display: flex;
       align-items: flex-start;
       justify-content: space-between;
       gap: var(--space-2);
     }
-    .edit-text-toolbar { justify-content: flex-end; }
     .edit-section-head h3, .edit-section > h3 {
       margin: 0;
       font-size: 16px;
@@ -1244,7 +1246,10 @@
     .edit-text-toggle {
       all: unset;
       box-sizing: border-box;
-      flex: none;
+      position: absolute;
+      z-index: 1;
+      inset-block-start: 7px;
+      inset-inline-end: 7px;
       width: var(--tap);
       height: var(--tap);
       display: grid;
@@ -1260,12 +1265,13 @@
       border-color: var(--color-accent-ink);
       background: var(--color-accent-soft);
     }
+    .edit-text-wrap { position: relative; }
     textarea.edit-text-field {
-      min-height: 128px;
-      padding: 12px 13px;
+      min-height: 104px;
+      padding: 10px 13px 10px 60px;
       font-size: 17px;
       font-weight: 600;
-      line-height: 1.75;
+      line-height: 1.65;
       resize: vertical;
     }
     textarea.edit-text-field[readonly] {
@@ -1274,19 +1280,46 @@
       cursor: default;
     }
     textarea.edit-text-field.is-unlocked { border-color: var(--color-accent-ink); }
-    .edit-organize-grid { display: grid; grid-template-columns: 1fr; gap: 12px; }
+    .edit-organize-grid {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(136px, .72fr);
+      align-items: end;
+      gap: 8px;
+    }
+    .edit-field-heading {
+      min-height: 24px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+    }
     .edit-age-field {
-      min-height: var(--tap);
       display: inline-flex;
       align-items: center;
-      gap: 7px;
+      gap: 4px;
       color: var(--color-muted);
-      font-size: 14px;
+      font-size: 12px;
+      white-space: nowrap;
     }
-    .edit-age-field strong { color: var(--color-text); font-size: 15px; }
+    .edit-age-field strong { color: var(--color-text); font-size: 13px; }
+    .edit-date-group { min-width: 0; }
+    .edit-date-group .field { width: 100%; min-width: 0; padding-inline: 8px; }
+    .edit-compact-row {
+      min-height: var(--tap);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+    }
+    .edit-compact-row .tiny-note {
+      min-width: 0;
+      font-size: 12px;
+      line-height: 1.35;
+    }
     .edit-top-toggle {
-      padding-block-start: 8px;
-      border-block-start: 1px solid var(--color-hairline);
+      flex: none;
+      min-height: var(--tap);
+      white-space: nowrap;
     }
     .edit-sheet .edit-attachments {
       border-radius: 0;
@@ -1302,7 +1335,7 @@
       justify-content: space-between;
       gap: var(--space-2);
       margin-top: 0;
-      padding: 12px 0 calc(18px + var(--safe-bottom));
+      padding: 10px 0 calc(14px + var(--safe-bottom));
       background: var(--color-bg);
       border-block-start: 1px solid var(--color-divider);
     }
@@ -1514,7 +1547,12 @@
     @media (min-width: 760px) {
       .app-shell { padding-top: calc(30px + var(--safe-top)); }
       .two-col { grid-template-columns: 1.05fr .95fr; }
-      .edit-organize-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .edit-organize-grid { grid-template-columns: minmax(0, 1fr) 170px; }
+    }
+
+    @media (max-width: 340px) {
+      .edit-organize-grid { grid-template-columns: minmax(0, 1fr) 136px; }
+      .edit-compact-row .tiny-note { max-width: 52%; }
     }
 
     @media (max-width: 560px) {
@@ -1790,29 +1828,33 @@
       </div>
       <form id="editForm" class="edit-form">
         <input type="hidden" id="editEntryId">
-        <section class="edit-section">
-          <div class="edit-section-head edit-text-toolbar">
+        <section class="edit-section edit-text-section">
+          <div class="edit-text-wrap">
             <button class="edit-text-toggle" id="editTextUnlockButton" type="button" aria-label="تعديل النص" title="تعديل النص" aria-pressed="false">✎</button>
+            <textarea class="field edit-text-field" id="editText" rows="3" dir="auto" maxlength="5000" readonly aria-label="نص الالتقاطة"></textarea>
           </div>
-          <textarea class="field edit-text-field" id="editText" rows="4" dir="auto" maxlength="5000" readonly aria-label="نص الالتقاطة"></textarea>
         </section>
         <section class="edit-section">
-          <div class="edit-age-field" id="editEntryAge"><span aria-hidden="true">⏳</span><strong>اليوم</strong></div>
           <div class="edit-organize-grid">
-          <div class="form-group">
-            <label for="editPath">المسار</label>
-            <select class="select-field" id="editPath"></select>
-            <span class="tiny-note" id="editPathAge">يبدأ توثيق مدة المسار مع هذه النسخة.</span>
+            <div class="form-group">
+              <div class="edit-field-heading">
+                <label for="editPath">المسار</label>
+                <div class="edit-age-field" id="editEntryAge"><span aria-hidden="true">⏳</span><strong>اليوم</strong></div>
+              </div>
+              <select class="select-field" id="editPath"></select>
+            </div>
+            <div class="form-group edit-date-group">
+              <label for="editDueDate">موعد التنفيذ</label>
+              <input class="field" id="editDueDate" type="date" lang="en-GB" dir="ltr">
+            </div>
           </div>
-          <div class="form-group">
-            <label for="editDueDate">موعد التنفيذ</label>
-            <input class="field" id="editDueDate" type="date" lang="en-GB" dir="ltr">
+          <div class="edit-compact-row">
+            <span class="tiny-note" id="editPathAge">مدة المسار غير متاحة.</span>
+            <label class="check-label edit-top-toggle">
+              <input class="checkbox" id="editTopToday" type="checkbox">
+              ★ أهم اليوم
+            </label>
           </div>
-          </div>
-          <label class="check-label edit-top-toggle">
-            <input class="checkbox" id="editTopToday" type="checkbox">
-            ★ أهم اليوم
-          </label>
         </section>
         <section class="edit-section">
           <details class="options edit-attachments" id="editAttachmentsOptions">

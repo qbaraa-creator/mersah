@@ -2621,13 +2621,13 @@ function setEditTextUnlocked(unlocked, { focus = false } = {}) {
 function updateEditPathAgeHint(entry) {
   if (!entry) return;
   if (elements.editPath.value !== entry.path) {
-    elements.editPathAge.textContent = 'يبدأ توثيق المسار الجديد عند حفظ التعديل.';
+    elements.editPathAge.textContent = 'المسار الجديد يبدأ عند الحفظ';
     return;
   }
   const age = currentPathAgeDays(entry);
   elements.editPathAge.textContent = age == null
-    ? 'مدة هذا المسار غير متاحة قبل بدء سجل الانتقالات.'
-    : `في هذا المسار منذ ${ageDaysLabel(age)}.`;
+    ? 'مدة المسار غير متاحة'
+    : `في المسار منذ ${ageDaysLabel(age)}`;
 }
 
 function renderExistingAttachments(entryId) {
