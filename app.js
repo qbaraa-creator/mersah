@@ -2,7 +2,7 @@
 'use strict';
 
 const DB_NAME = 'mersah-daily';
-const DB_VERSION = 1;
+const DB_VERSION = 3;
 const LEGACY_DB_NAME = 'mersah-db';
 const DAY = 24 * 60 * 60 * 1000;
 const TRASH_RETENTION_DAYS = 7;
@@ -20,7 +20,9 @@ const MAX_IMPORT_ATTACHMENTS = 200000;
 const MAX_PATH_LOG_ENTRIES = 100000;
 const MAX_ENTRY_EVENT_LOG_ENTRIES = 100000;
 const HEATMAP_DAYS = 90;
-const BACKUP_SCHEMA_VERSION = 4;
+const DECISION_WINDOW_MIN_EVENTS = 30;
+const DECISION_WINDOW_HOURS = 3;
+const BACKUP_SCHEMA_VERSION = 5;
 const MAX_ATTACHMENT_BYTES = 20 * 1024 * 1024;
 const MAX_IMAGE_SOURCE_BYTES = 50 * 1024 * 1024;
 const MAX_ATTACHMENTS_PER_ENTRY = 30;
@@ -45,30 +47,26 @@ const PATHS = Object.freeze({
   untriaged: 'غير مفرز',
   do: 'نفّذ',
   consider: 'للنظر',
-  waiting: 'بانتظار',
-  reference: 'مرجع'
+  waiting: 'بانتظار'
 });
 
 const ROUTABLE_PATHS = Object.freeze({
   consider: 'للنظر',
   do: 'نفّذ',
-  waiting: 'بانتظار',
-  reference: 'مرجع'
+  waiting: 'بانتظار'
 });
 
-const PATH_ICONS = Object.freeze({
-  untriaged: '◇',
-  do: '☑',
-  consider: '✦',
-  waiting: '◷',
-  reference: '▤'
+const PATH_ICON_NAMES = Object.freeze({
+  untriaged: 'pathUntriaged',
+  do: 'pathDo',
+  consider: 'pathConsider',
+  waiting: 'pathWaiting'
 });
 
 const ROUTABLE_PATH_OPTIONS = Object.freeze({
-  consider: '✦ للنظر',
-  do: '☑ نفّذ',
-  waiting: '◷ بانتظار',
-  reference: '▤ مرجع'
+  consider: 'للنظر',
+  do: 'نفّذ',
+  waiting: 'بانتظار'
 });
 
 const STATUSES = Object.freeze({
@@ -94,7 +92,7 @@ const V0_STATE_MAP = {
   inbox: ['untriaged', 'open'],
   week: ['do', 'open'],
   later: ['consider', 'open'],
-  archive: ['reference', 'done'],
+  archive: ['consider', 'done'],
   trash: ['untriaged', 'trash']
 };
 
@@ -135,6 +133,11 @@ let backupVerificationDue = false;
 let analysisDataRevision = 0;
 let renderedAnalysisRevision = -1;
 let renderedAnalysisDay = '';
+const viewScrollPositions = new Map([
+  ['today', 0],
+  ['entries', 0],
+  ['days', 0]
+]);
 
 const $ = (selector, root = document) => root.querySelector(selector);
 const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
@@ -158,6 +161,19 @@ const elements = {
   topCandidates: $('#topCandidates'),
   todayTimeline: $('#todayTimeline'),
   loadMoreTodayButton: $('#loadMoreTodayButton'),
+  openEveningCloseButton: $('#openEveningCloseButton'),
+  eveningCloseButtonStatus: $('#eveningCloseButtonStatus'),
+  eveningCloseDialog: $('#eveningCloseDialog'),
+  eveningCloseForm: $('#eveningCloseForm'),
+  eveningResolvedCount: $('#eveningResolvedCount'),
+  eveningCompletedCount: $('#eveningCompletedCount'),
+  eveningOpenDoCount: $('#eveningOpenDoCount'),
+  eveningOpenDoMore: $('#eveningOpenDoMore'),
+  eveningOpenDoList: $('#eveningOpenDoList'),
+  eveningTomorrowDirection: $('#eveningTomorrowDirection'),
+  eveningClosedStatus: $('#eveningClosedStatus'),
+  saveEveningCloseButton: $('#saveEveningCloseButton'),
+  saveEveningCloseBackupButton: $('#saveEveningCloseBackupButton'),
   analysisResolutionRate: $('#analysisResolutionRate'),
   analysisResolutionDetail: $('#analysisResolutionDetail'),
   analysisOldestAge: $('#analysisOldestAge'),
@@ -168,6 +184,8 @@ const elements = {
   pathBacklogList: $('#pathBacklogList'),
   captureHeatmapSummary: $('#captureHeatmapSummary'),
   captureHeatmap: $('#captureHeatmap'),
+  decisionWindowSummary: $('#decisionWindowSummary'),
+  decisionWindowCopy: $('#decisionWindowCopy'),
   entriesSearchInput: $('#entriesSearchInput'),
   entriesPathFilters: $('#entriesPathFilters'),
   entriesFilterOptions: $('#entriesFilterOptions'),
@@ -278,7 +296,7 @@ function openDatabase() {
   if (databasePromise) return databasePromise;
   databasePromise = new Promise((resolve, reject) => {
     const request = indexedDB.open(DB_NAME, DB_VERSION);
-    request.onupgradeneeded = () => {
+    request.onupgradeneeded = event => {
       const db = request.result;
       if (!db.objectStoreNames.contains('entries')) {
         const store = db.createObjectStore('entries', { keyPath: 'id' });
@@ -298,6 +316,17 @@ function openDatabase() {
       }
       if (!db.objectStoreNames.contains('settings')) {
         db.createObjectStore('settings', { keyPath: 'key' });
+      }
+      if (event.oldVersion < 3) {
+        const entryStore = request.transaction.objectStore('entries');
+        const cursorRequest = entryStore.openCursor();
+        cursorRequest.onsuccess = () => {
+          const cursor = cursorRequest.result;
+          if (!cursor) return;
+          const migrated = entryWithoutRemovedPath(cursor.value);
+          if (migrated !== cursor.value) cursor.update(migrated);
+          cursor.continue();
+        };
       }
     };
     request.onsuccess = () => resolve(request.result);
@@ -694,6 +723,60 @@ function validPath(value) {
   return hasOwn(PATHS, value) ? value : 'consider';
 }
 
+function activePathValue(value) {
+  return value === 'reference' ? 'consider' : value;
+}
+
+function pathLogWithoutRemovedPath(value) {
+  if (!Array.isArray(value) || !value.some(event => event?.path === 'reference')) return value;
+  const result = [];
+  value.forEach(event => {
+    if (!event || typeof event !== 'object') {
+      result.push(event);
+      return;
+    }
+    const path = activePathValue(event.path);
+    if (result.at(-1)?.path === path) return;
+    result.push(path === event.path ? event : { ...event, path });
+  });
+  return result;
+}
+
+function eventLogWithoutRemovedPath(value) {
+  if (!Array.isArray(value) || !value.some(event =>
+    event?.to === 'reference' || event?.from === 'reference'
+  )) return value;
+  const result = [];
+  value.forEach(event => {
+    if (!event || typeof event !== 'object') {
+      result.push(event);
+      return;
+    }
+    if (event.type === 'created' && event.to === 'reference') {
+      result.push({ ...event, to: 'consider' });
+      return;
+    }
+    if (event.type === 'path_changed') {
+      const from = activePathValue(event.from);
+      const to = activePathValue(event.to);
+      if (from === to) return;
+      result.push(from === event.from && to === event.to ? event : { ...event, from, to });
+      return;
+    }
+    result.push(event);
+  });
+  return result;
+}
+
+function entryWithoutRemovedPath(entry) {
+  if (!entry || typeof entry !== 'object') return entry;
+  const path = activePathValue(entry.path);
+  const pathLog = pathLogWithoutRemovedPath(entry.pathLog);
+  const eventLog = eventLogWithoutRemovedPath(entry.eventLog);
+  if (path === entry.path && pathLog === entry.pathLog && eventLog === entry.eventLog) return entry;
+  return { ...entry, path: validPath(path), pathLog, eventLog };
+}
+
 function createPathEvent(path, at = nowIso(), stamp = localCreationStamp(at)) {
   return {
     path: validPath(path),
@@ -728,13 +811,17 @@ function derivedLegacyEventLog(entry) {
   const createdStamp = entry?.createdLocal || localCreationStamp(createdAt);
   const pathEvents = pathLogFor(entry);
   const initialPath = pathEvents[0]?.path;
-  const events = [createEntryEvent('created', createdAt, initialPath ? { to: initialPath } : {}, createdStamp)];
+  const events = [createEntryEvent('created', createdAt, {
+    ...(initialPath ? { to: initialPath } : {}),
+    estimated: true
+  }, createdStamp)];
   for (let index = 1; index < pathEvents.length; index += 1) {
     const previous = pathEvents[index - 1];
     const current = pathEvents[index];
     events.push(createEntryEvent('path_changed', current.at, {
       from: previous.path,
-      to: current.path
+      to: current.path,
+      estimated: true
     }, {
       date: current.localDate,
       hour: localPartsAtOffset(current.at, current.utcOffsetMinutes ?? -new Date(current.at).getTimezoneOffset()).hour,
@@ -750,7 +837,8 @@ function derivedLegacyEventLog(entry) {
       : new Date(attachmentAt) > new Date(updatedAt) ? updatedAt : attachmentAt;
     events.push(createEntryEvent('attachments_added', at, {
       count: 1,
-      names: [safeAttachmentName(attachment.name)]
+      names: [safeAttachmentName(attachment.name)],
+      estimated: true
     }));
   });
   return events.sort((a, b) => new Date(a.at) - new Date(b.at));
@@ -828,6 +916,15 @@ function dailyRecordFor(key) {
   return dailyRecordsByDate.get(key) || null;
 }
 
+function dailyRecordHasContent(record) {
+  return Boolean(record?.direction || record?.topEntryIds?.length || record?.closure);
+}
+
+function dayClosureFor(key) {
+  const closure = dailyRecordFor(key)?.closure;
+  return closure && typeof closure === 'object' ? closure : null;
+}
+
 function topEntriesFor(dayKey) {
   return topEntriesByDate.get(dayKey) || [];
 }
@@ -858,7 +955,7 @@ function rebuildDataIndexes() {
     const dayEntries = entriesByDate.get(day) || [];
     dayEntries.push(entry);
     entriesByDate.set(day, dayEntries);
-    if (entry.path === 'reference' || entry.status === 'open') {
+    if (entry.status === 'open') {
       const pathEntries = entriesByPath.get(entry.path) || [];
       pathEntries.push(entry);
       entriesByPath.set(entry.path, pathEntries);
@@ -908,6 +1005,7 @@ function dailyTopRecordForEntries(dayKey, sourceEntries, timestamp = nowIso()) {
     date: dayKey,
     direction: current?.direction || '',
     topEntryIds: ids,
+    closure: current?.closure || null,
     createdAt: current?.createdAt || timestamp,
     updatedAt: timestamp
   };
@@ -920,16 +1018,30 @@ async function refreshData() {
     getAll('daily'),
     getAll('settings')
   ]);
-  entries = entryRows.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
-  attachments = attachmentRows.sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
-  pruneAttachmentUrlCache();
-  dailyRecords = dailyRows.sort((a, b) => b.date.localeCompare(a.date));
+  entries = entryRows;
+  attachments = attachmentRows;
+  dailyRecords = dailyRows;
   settings = settingRows;
   settingsMap = new Map(settingRows.map(setting => [setting.key, setting.value]));
-  applyTheme();
+  refreshDataViews({ applyStoredTheme: true });
+}
+
+function refreshDataViews({ applyStoredTheme = false } = {}) {
+  entries.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+  attachments.sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
+  dailyRecords.sort((a, b) => b.date.localeCompare(a.date));
+  pruneAttachmentUrlCache();
+  if (applyStoredTheme) applyTheme();
   rebuildDataIndexes();
   analysisDataRevision += 1;
   renderAll();
+}
+
+function upsertDailyRecords(records) {
+  if (!records.length) return;
+  const byDate = new Map(dailyRecords.map(record => [record.date, record]));
+  records.forEach(record => byDate.set(record.date, record));
+  dailyRecords = [...byDate.values()];
 }
 
 function renderAll() {
@@ -1000,7 +1112,91 @@ function renderToday() {
   elements.openTopTaskDialog.hidden = top.length >= 3;
   if (top.length >= 3 && elements.topTaskDialog.open) elements.topTaskDialog.close();
   renderTopTasks(today, top);
+  renderEveningCloseButton(today);
   renderTodayTimeline(today);
+}
+
+function dayClosingSummary(day) {
+  const resolvedIds = new Set();
+  const completedIds = new Set();
+  entries.forEach(entry => {
+    storedEntryEventLog(entry).forEach(event => {
+      if ((validDateKey(event.localDate) || dateKey(event.at)) !== day) return;
+      if (event.type === 'path_changed' && event.from === 'consider' && event.to !== 'consider'
+          && !['consider', 'untriaged'].includes(entry.path)) {
+        resolvedIds.add(entry.id);
+      }
+      if (event.type === 'status_changed' && ['done', 'closed'].includes(event.to)
+          && ['done', 'closed'].includes(entry.status)) {
+        completedIds.add(entry.id);
+      }
+    });
+  });
+  const openDo = [...(entriesByPath.get('do') || [])].sort((a, b) => {
+    const aTop = a.topTodayDate === day ? 1 : 0;
+    const bTop = b.topTodayDate === day ? 1 : 0;
+    if (aTop !== bTop) return bTop - aTop;
+    if (a.dueDate && b.dueDate && a.dueDate !== b.dueDate) return a.dueDate.localeCompare(b.dueDate);
+    if (a.dueDate !== b.dueDate) return a.dueDate ? -1 : 1;
+    return new Date(a.createdAt) - new Date(b.createdAt);
+  });
+  return {
+    resolved: resolvedIds.size,
+    completed: completedIds.size,
+    openDo
+  };
+}
+
+function renderEveningCloseButton(day) {
+  const closure = dayClosureFor(day);
+  if (!closure) {
+    elements.eveningCloseButtonStatus.textContent = 'رتّب الغد واحفظ نسختك';
+    elements.openEveningCloseButton.setAttribute('aria-label', 'إغلاق اليوم وترتيب الغد');
+    return;
+  }
+  const backupText = closure.backupAt ? ' · نسخة مؤكدة' : '';
+  elements.eveningCloseButtonStatus.textContent = `أُغلق ${formatTime(closure.closedAt)}${backupText}`;
+  elements.openEveningCloseButton.setAttribute('aria-label', `تعديل إغلاق اليوم، أُغلق الساعة ${formatTime(closure.closedAt)}`);
+}
+
+function renderEveningCloseDialog() {
+  const today = dateKey();
+  const tomorrow = shiftDateKey(today, 1);
+  const summary = dayClosingSummary(today);
+  const closure = dayClosureFor(today);
+  const tomorrowRecord = dailyRecordFor(tomorrow);
+  elements.eveningResolvedCount.textContent = formatNumber(summary.resolved);
+  elements.eveningCompletedCount.textContent = formatNumber(summary.completed);
+  elements.eveningOpenDoCount.textContent = formatNumber(summary.openDo.length);
+  const visibleOpen = summary.openDo.slice(0, 3);
+  elements.eveningOpenDoMore.textContent = summary.openDo.length > visibleOpen.length
+    ? `+${formatNumber(summary.openDo.length - visibleOpen.length)}`
+    : '';
+  if (visibleOpen.length) {
+    elements.eveningOpenDoList.replaceChildren(...visibleOpen.map(entry => {
+      const item = document.createElement('p');
+      item.className = 'evening-open-item';
+      item.dir = 'auto';
+      item.textContent = entry.text || attachmentOnlyLabel(entry);
+      item.title = item.textContent;
+      return item;
+    }));
+  } else {
+    const empty = document.createElement('p');
+    empty.className = 'evening-open-empty';
+    empty.textContent = 'لا شيء مفتوح.';
+    elements.eveningOpenDoList.replaceChildren(empty);
+  }
+  elements.eveningTomorrowDirection.value = tomorrowRecord?.direction || closure?.tomorrowDirection || '';
+  elements.eveningClosedStatus.textContent = closure
+    ? `محفوظ منذ ${formatTime(closure.closedAt)}${closure.backupAt ? ' · النسخة مؤكدة' : ''}`
+    : 'سيُحفظ ملخص اليوم مع توجّه الغد.';
+}
+
+function openEveningCloseDialog() {
+  renderEveningCloseDialog();
+  elements.eveningCloseDialog.showModal();
+  setTimeout(() => elements.eveningTomorrowDirection.focus(), 80);
 }
 
 function renderTopProgress(top) {
@@ -1018,7 +1214,10 @@ function renderTopProgress(top) {
 
 function renderTopTasks(dayKey, top) {
   if (!top.length) {
-    elements.topTasksList.replaceChildren();
+    const note = document.createElement('p');
+    note.className = 'top-empty';
+    note.textContent = 'ثلاث مهام تكفي اليوم';
+    elements.topTasksList.replaceChildren(note);
   } else {
     elements.topTasksList.replaceChildren(...top.map(entry => createTopTaskElement(entry, dayKey)));
   }
@@ -1215,6 +1414,7 @@ function renderAnalysisSummary() {
   elements.analysisTopDetail.textContent = recentTopIds.length ? 'آخر 7 أيام' : 'لم تُحدد مهام';
   renderPathBacklog();
   renderCaptureHeatmap(today);
+  renderDecisionWindow(today);
   renderedAnalysisRevision = analysisDataRevision;
   renderedAnalysisDay = today;
 }
@@ -1256,9 +1456,7 @@ function renderPathBacklog() {
 
     const name = document.createElement('span');
     name.className = 'path-backlog-name';
-    const icon = document.createElement('span');
-    icon.textContent = PATH_ICONS[path];
-    icon.setAttribute('aria-hidden', 'true');
+    const icon = pathIcon(path);
     const text = document.createElement('span');
     text.textContent = label;
     name.append(icon, text);
@@ -1294,7 +1492,7 @@ function entryCreatedHour(entry) {
 function renderCaptureHeatmap(today) {
   const cutoff = shiftDateKey(today, -(HEATMAP_DAYS - 1));
   const dayLabels = ['الأحد', 'الاثنين', 'الثلاثاء', 'الأربعاء', 'الخميس', 'الجمعة', 'السبت'];
-  const shortLabels = ['أحد', 'إثن', 'ثلا', 'أرب', 'خمي', 'جمع', 'سبت'];
+  const shortLabels = ['ح', 'ن', 'ث', 'ر', 'خ', 'ج', 'س'];
   const matrix = Array.from({ length: 7 }, () => Array(24).fill(0));
   let total = 0;
   let fallbackCount = 0;
@@ -1359,10 +1557,65 @@ function renderCaptureHeatmap(today) {
   elements.captureHeatmap.replaceChildren(...rows, axis);
 }
 
+function isDocumentedDecisionEvent(event) {
+  if (!event || event.estimated) return false;
+  if (event.type === 'status_changed' && event.to === 'done') return true;
+  return event.type === 'path_changed'
+    && ['consider', 'untriaged'].includes(event.from)
+    && !['consider', 'untriaged'].includes(event.to);
+}
+
+function decisionEventsNeededLabel(count) {
+  if (count === 1) return 'حدث حسم موثق واحد';
+  if (count === 2) return 'حدثي حسم موثقين';
+  if (count >= 3 && count <= 10) return `${count} أحداث حسم موثقة`;
+  return `${count} حدث حسم موثق`;
+}
+
+function renderDecisionWindow(today) {
+  const cutoff = shiftDateKey(today, -(HEATMAP_DAYS - 1));
+  const hourly = Array(24).fill(0);
+  let total = 0;
+  entries.forEach(entry => {
+    storedEntryEventLog(entry).forEach(event => {
+      if (!isDocumentedDecisionEvent(event)) return;
+      const eventDay = validDateKey(event.localDate) || dateKey(event.at);
+      const hour = Number(event.localHour);
+      if (eventDay < cutoff || eventDay > today || !Number.isInteger(hour) || hour < 0 || hour > 23) return;
+      hourly[hour] += 1;
+      total += 1;
+    });
+  });
+
+  if (total < DECISION_WINDOW_MIN_EVENTS) {
+    const remaining = DECISION_WINDOW_MIN_EVENTS - total;
+    elements.decisionWindowSummary.textContent = `${total}/${DECISION_WINDOW_MIN_EVENTS} حدثًا`;
+    elements.decisionWindowCopy.textContent = `تظهر بعد ${decisionEventsNeededLabel(remaining)}.`;
+    return;
+  }
+
+  let peakStart = 0;
+  let peakCount = -1;
+  for (let start = 0; start < 24; start += 1) {
+    let count = 0;
+    for (let offset = 0; offset < DECISION_WINDOW_HOURS; offset += 1) {
+      count += hourly[(start + offset) % 24];
+    }
+    if (count > peakCount) {
+      peakStart = start;
+      peakCount = count;
+    }
+  }
+  const peakEnd = (peakStart + DECISION_WINDOW_HOURS) % 24;
+  const range = `${pad(peakStart)}:00–${pad(peakEnd)}:00`;
+  elements.decisionWindowSummary.textContent = `${range} · ${total} حدثًا`;
+  elements.decisionWindowCopy.textContent = `أكثر أوقات الحسم في آخر 90 يومًا: ${range}، وفيها ${peakCount} من ${total} حدثًا موثقًا.`;
+}
+
 function renderEntriesPathFilters(total, pathCounts) {
   const options = [
     ['all', 'الكل', ''],
-    ...Object.entries(ROUTABLE_PATHS).map(([path, label]) => [path, label, PATH_ICONS[path]])
+    ...Object.entries(ROUTABLE_PATHS).map(([path, label]) => [path, label, path])
   ];
   elements.entriesPathFilters.replaceChildren(...options.map(([path, label, icon]) => {
     const button = document.createElement('button');
@@ -1373,10 +1626,8 @@ function renderEntriesPathFilters(total, pathCounts) {
     const name = document.createElement('span');
     name.className = 'entries-path-name';
     if (icon) {
-      const iconNode = document.createElement('span');
-      iconNode.className = 'entries-path-icon';
-      iconNode.textContent = icon;
-      iconNode.setAttribute('aria-hidden', 'true');
+      const iconNode = pathIcon(icon);
+      iconNode.classList.add('entries-path-icon');
       const labelNode = document.createElement('span');
       labelNode.textContent = label;
       name.append(iconNode, labelNode);
@@ -1502,18 +1753,26 @@ function renderDays() {
 function archiveDayKeys(month) {
   const set = new Set(entriesByDate.keys());
   dailyRecords.forEach(record => {
-    if (record.direction || record.topEntryIds?.length) set.add(record.date);
+    if (record.date <= dateKey() && dailyRecordHasContent(record)) set.add(record.date);
   });
   return [...set]
     .filter(key => validDateKey(key) && key.startsWith(`${month}-`))
     .sort((a, b) => b.localeCompare(a));
 }
 
+function dayKeys() {
+  const set = new Set(entriesByDate.keys());
+  dailyRecords.forEach(record => {
+    if (record.date <= dateKey() && dailyRecordHasContent(record)) set.add(record.date);
+  });
+  return [...set].filter(validDateKey).sort((a, b) => b.localeCompare(a));
+}
+
 function archiveActivityMonths() {
   const months = new Set([dateKey().slice(0, 7)]);
   entriesByDate.forEach((_, key) => months.add(key.slice(0, 7)));
   dailyRecords.forEach(record => {
-    if (record.direction || record.topEntryIds?.length) months.add(record.date.slice(0, 7));
+    if (record.date <= dateKey() && dailyRecordHasContent(record)) months.add(record.date.slice(0, 7));
   });
   return [...months].filter(validMonthKey).sort((a, b) => b.localeCompare(a));
 }
@@ -1581,6 +1840,8 @@ function renderSelectedDay() {
   topList.replaceChildren(...(top.length ? top.map(entry => createTopTaskElement(entry, key)) : [emptyNode('لا توجد مهام عليا لهذا اليوم.')]));
   topWrap.append(topTitle, topList);
 
+  const closure = createArchivedClosure(record?.closure);
+
   const timeline = document.createElement('section');
   timeline.className = 'stack';
   const timelineTitle = document.createElement('h3');
@@ -1601,7 +1862,32 @@ function renderSelectedDay() {
     });
     timeline.append(more);
   }
-  elements.selectedDayContent.replaceChildren(topWrap, timeline);
+  elements.selectedDayContent.replaceChildren(...[closure, topWrap, timeline].filter(Boolean));
+}
+
+function createArchivedClosure(closure) {
+  if (!closure) return null;
+  const section = document.createElement('section');
+  section.className = 'archived-closure';
+  const head = document.createElement('div');
+  head.className = 'archived-closure-head';
+  const title = document.createElement('h3');
+  title.textContent = 'إغلاق اليوم';
+  const time = document.createElement('span');
+  time.textContent = formatTime(closure.closedAt);
+  head.append(title, time);
+  const summary = document.createElement('p');
+  summary.className = 'archived-closure-summary';
+  summary.textContent = `حُسم ${formatNumber(closure.summary.resolved)} · أُنجز ${formatNumber(closure.summary.completed)} · بقي في نفّذ ${formatNumber(closure.summary.openDo)}`;
+  section.append(head, summary);
+  if (closure.tomorrowDirection) {
+    const direction = document.createElement('p');
+    direction.className = 'archived-closure-direction';
+    direction.dir = 'auto';
+    direction.textContent = `توجّه الغد: ${closure.tomorrowDirection}`;
+    section.append(direction);
+  }
+  return section;
 }
 
 function renderEntryList(container, list, emptyMessage) {
@@ -1631,18 +1917,18 @@ function createEntryCard(entry) {
 
   const meta = document.createElement('div');
   meta.className = 'meta';
-  const age = chip(`⏳ ${ageDaysLabel(entryAgeDays(entry))}`, 'age-chip');
+  const age = chip('', 'age-chip');
+  age.append(uiIcon('hourglass'), document.createTextNode(ageDaysLabel(entryAgeDays(entry))));
   age.title = 'العمر منذ إضافة الالتقاط';
   age.setAttribute('aria-label', `العمر منذ إضافة الالتقاط: ${ageDaysLabel(entryAgeDays(entry))}`);
   meta.append(age);
   if (entry.status !== 'open') {
-    const statusIcon = entry.status === 'done' ? '✓' : '●';
-    meta.append(iconChip(statusIcon, STATUSES[entry.status] || entry.status, `status-${entry.status}`));
+    meta.append(iconChip('check', STATUSES[entry.status] || entry.status, `status-${entry.status}`));
   }
   if (entry.dueDate) {
     meta.append(chip(`⏱ ${relativeDayLabel(entry.dueDate)}`, entry.dueDate < dateKey() ? 'overdue' : ''));
   }
-  if (entry.topTodayDate) meta.append(iconChip('★', 'ضمن أهم المهام', 'top-marker'));
+  if (entry.topTodayDate) meta.append(iconChip('starFilled', 'ضمن أهم المهام', 'top-marker'));
 
   const imageRow = createAttachmentRow(entry.id);
   const actions = document.createElement('div');
@@ -1708,8 +1994,15 @@ function renderEntryDetails(entryId) {
   activeDetailsEntryId = entry.id;
   elements.entryDetailsText.textContent = entry.text || attachmentOnlyLabel(entry);
   elements.entryDetailsCreated.textContent = `${formatDateKey(entryDate(entry))} · ${formatEntryTime(entry)}`;
-  elements.entryDetailsAge.textContent = `⏳ ${ageDaysLabel(entryAgeDays(entry))}`;
-  elements.entryDetailsPath.textContent = `${PATH_ICONS[entry.path] || '✦'} ${PATHS[entry.path] || entry.path}`;
+  elements.entryDetailsAge.replaceChildren(
+    uiIcon('hourglass'),
+    document.createTextNode(ageDaysLabel(entryAgeDays(entry)))
+  );
+  elements.entryDetailsPath.className = `path-${entry.path}`;
+  elements.entryDetailsPath.replaceChildren(
+    pathIcon(entry.path),
+    document.createTextNode(PATHS[entry.path] || entry.path)
+  );
   elements.entryDetailsEdit.hidden = entry.status === 'trash';
 
   const attachmentRow = createAttachmentRow(entry.id);
@@ -1728,7 +2021,7 @@ function renderEntryDetails(entryId) {
     item.className = 'entry-event';
     const label = document.createElement('span');
     label.className = 'entry-event-label';
-    label.textContent = entryEventLabel(event);
+    label.textContent = `${entryEventLabel(event)}${event.estimated ? ' · تقديري' : ''}`;
     const time = document.createElement('time');
     time.className = 'entry-event-time';
     time.dateTime = event.at;
@@ -1752,8 +2045,70 @@ function chip(text, extraClass = '') {
   return span;
 }
 
-function iconChip(icon, label, extraClass = '') {
-  const span = chip(icon, extraClass);
+const UI_ICON_PATHS = Object.freeze({
+  edit: [
+    'M21.2 6.8a2.8 2.8 0 0 0-4-4L3.8 16.2a2 2 0 0 0-.5.8L2 21.4a.5.5 0 0 0 .6.6L7 20.7a2 2 0 0 0 .8-.5z',
+    'm15 5 4 4'
+  ],
+  hourglass: [
+    'M5 22h14M5 2h14M7 2v4.2c0 .5.2 1 .6 1.4L12 12l4.4-4.4c.4-.4.6-.9.6-1.4V2M7 22v-4.2c0-.5.2-1 .6-1.4L12 12l4.4 4.4c.4.4.6.9.6 1.4V22'
+  ],
+  trash: [
+    'M3 6h18M8 6V4h8v2M19 6l-1 15H6L5 6M10 11v6M14 11v6'
+  ],
+  check: [
+    'm5 12 4 4L19 6'
+  ],
+  star: [
+    'm12 3 2.8 5.7 6.2.9-4.5 4.4 1.1 6.2-5.6-3-5.6 3 1.1-6.2L3 9.6l6.2-.9z'
+  ],
+  starFilled: [
+    'm12 3 2.8 5.7 6.2.9-4.5 4.4 1.1 6.2-5.6-3-5.6 3 1.1-6.2L3 9.6l6.2-.9z'
+  ],
+  reopen: [
+    'M3 12a9 9 0 1 0 3-6.7M3 4v6h6'
+  ],
+  return: [
+    'M9 14 4 9l5-5M4 9h10a6 6 0 0 1 6 6v2'
+  ],
+  pathUntriaged: [
+    'm12 3 9 9-9 9-9-9z'
+  ],
+  pathDo: [
+    'M4 4h16v16H4zM8 12l3 3 6-7'
+  ],
+  pathConsider: [
+    'm12 3 1.5 4.5L18 9l-4.5 1.5L12 15l-1.5-4.5L6 9l4.5-1.5zM19 16v4M17 18h4'
+  ],
+  pathWaiting: [
+    'M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18M12 7v5l3 2'
+  ]
+});
+
+function uiIcon(name) {
+  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  svg.classList.add('ui-icon');
+  svg.setAttribute('viewBox', '0 0 24 24');
+  svg.setAttribute('aria-hidden', 'true');
+  svg.setAttribute('focusable', 'false');
+  (UI_ICON_PATHS[name] || []).forEach(data => {
+    const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    path.setAttribute('d', data);
+    svg.append(path);
+  });
+  if (name === 'starFilled') svg.classList.add('is-filled');
+  return svg;
+}
+
+function pathIcon(path) {
+  const icon = uiIcon(PATH_ICON_NAMES[path] || PATH_ICON_NAMES.untriaged);
+  icon.classList.add('path-svg-icon');
+  return icon;
+}
+
+function iconChip(iconName, label, extraClass = '') {
+  const span = chip('', extraClass);
+  span.append(uiIcon(iconName));
   span.title = label;
   span.setAttribute('aria-label', label);
   return span;
@@ -1765,10 +2120,8 @@ function createPathMenu(entry) {
   const summary = document.createElement('summary');
   summary.className = `chip path-${entry.path}`;
   const currentLabel = PATHS[entry.path] || entry.path;
-  const currentIcon = document.createElement('span');
-  currentIcon.className = 'path-menu-icon';
-  currentIcon.textContent = PATH_ICONS[entry.path] || '◇';
-  currentIcon.setAttribute('aria-hidden', 'true');
+  const currentIcon = pathIcon(entry.path);
+  currentIcon.classList.add('path-menu-icon');
   summary.append(currentIcon);
   summary.title = currentLabel;
   summary.setAttribute('aria-label', `تغيير المسار الحالي: ${currentLabel}`);
@@ -1781,10 +2134,8 @@ function createPathMenu(entry) {
       const button = document.createElement('button');
       button.type = 'button';
       button.className = `path-menu-option path-${path}`;
-      const optionIcon = document.createElement('span');
-      optionIcon.className = 'path-option-icon';
-      optionIcon.textContent = PATH_ICONS[path];
-      optionIcon.setAttribute('aria-hidden', 'true');
+      const optionIcon = pathIcon(path);
+      optionIcon.classList.add('path-option-icon');
       const optionLabel = document.createElement('span');
       optionLabel.textContent = label;
       button.append(optionIcon, optionLabel);
@@ -2063,37 +2414,38 @@ function pruneAttachmentUrlCache() {
 function appendEntryActions(container, entry) {
   if (entry.status === 'open') {
     if (entry.path === 'waiting') {
-      container.append(actionButton('عاد إليّ', () => updateEntry(entry.id, { path: 'do' }), 'primary', '↩'));
+      container.append(actionButton('عاد إليّ', () => updateEntry(entry.id, { path: 'do' }), 'primary', 'return'));
     } else if (entry.type === 'task' || entry.path === 'do') {
-      container.append(actionButton('إكمال', () => setEntryStatus(entry.id, 'done'), 'primary', '✓'));
+      container.append(actionButton('إكمال', () => setEntryStatus(entry.id, 'done'), 'primary', 'check'));
     } else if (entry.path === 'consider') {
-      container.append(actionButton('إغلاق', () => setEntryStatus(entry.id, 'closed'), '', '✓'));
+      container.append(actionButton('إغلاق', () => setEntryStatus(entry.id, 'closed'), '', 'check'));
     }
   } else if (entry.status === 'done' || entry.status === 'closed') {
-    container.append(actionButton('إعادة فتح', () => setEntryStatus(entry.id, 'open'), 'primary', '↻'));
+    container.append(actionButton('إعادة فتح', () => setEntryStatus(entry.id, 'open'), 'primary', 'reopen'));
   }
 
   const today = dateKey();
   if (entry.topTodayDate === today) {
-    container.append(actionButton('إزالة من أهم اليوم', () => setTopToday(entry.id, null, today), 'top', '★'));
+    container.append(actionButton('إزالة من أهم اليوم', () => setTopToday(entry.id, null), 'top', 'starFilled'));
   } else if (entry.status !== 'trash') {
-    const add = actionButton('أهم اليوم', () => setTopToday(entry.id, today), 'top', '☆');
+    const add = actionButton('أهم اليوم', () => setTopToday(entry.id, today), 'top', 'star');
     add.disabled = !canAddTop(today, entry.id);
     container.append(add);
   }
 
   container.append(
-    actionButton('تحرير', () => openEditDialog(entry.id), '', '✎'),
-    actionButton('حذف', () => trashEntry(entry.id), 'danger', '⌫')
+    actionButton('تحرير', () => openEditDialog(entry.id), '', 'edit'),
+    actionButton('حذف', () => trashEntry(entry.id), 'danger', 'trash')
   );
 }
 
-function actionButton(label, handler, className = '', symbol = '') {
+function actionButton(label, handler, className = '', iconName = '') {
   const button = document.createElement('button');
   button.type = 'button';
   button.className = `action-link ${className}`.trim();
-  button.textContent = symbol || label;
-  if (symbol) {
+  if (iconName) button.append(uiIcon(iconName));
+  else button.textContent = label;
+  if (iconName) {
     button.title = label;
     button.setAttribute('aria-label', label);
   }
@@ -2179,7 +2531,9 @@ async function createEntry(data, attachmentDrafts = []) {
     }
   );
   entries = nextEntries;
-  await refreshData();
+  attachments.push(...attachmentRows);
+  if (dailyRecord) upsertDailyRecords([dailyRecord]);
+  refreshDataViews();
   return entry;
 }
 
@@ -2193,7 +2547,7 @@ async function updateEntry(id, patch) {
   }
   const updated = buildUpdatedEntry(current, patch);
   await persistEntryUpdate(current, updated);
-  await refreshData();
+  refreshDataViews();
   return updated;
 }
 
@@ -2240,6 +2594,13 @@ async function persistEntryUpdate(current, updated, { addedAttachments = [], rem
     addedAttachments.forEach(attachment => track(stores.attachments.put(attachment)));
   });
   entries = nextEntries;
+  if (needsAttachments) {
+    const removedIds = new Set(removedAttachmentIds);
+    attachments = attachments
+      .filter(attachment => !removedIds.has(attachment.id))
+      .concat(addedAttachments);
+  }
+  upsertDailyRecords(dailyUpdates);
 }
 
 async function setEntryStatus(id, status) {
@@ -2257,7 +2618,7 @@ async function setTopToday(id, day) {
 
 // ورقة تأكيد سفلية تتّسق مع الواجهة،
 // ويعرض نص الإدخال حتى يرى المستخدم ما يحذفه قبل أن يؤكّد.
-function askConfirm({ title = 'تأكيد', message, preview = '', accept = 'حذف', danger = true }) {
+function askConfirm({ title = 'تأكيد', message, preview = '', accept = 'حذف', danger = true, cancel = 'إلغاء' }) {
   return new Promise(resolve => {
     const dlg = elements.confirmDialog;
     elements.confirmTitle.textContent = title;
@@ -2271,6 +2632,8 @@ function askConfirm({ title = 'تأكيد', message, preview = '', accept = 'ح�
     }
     elements.confirmAccept.textContent = accept;
     elements.confirmAccept.className = danger ? 'danger-btn' : 'primary-btn';
+    elements.confirmCancel.hidden = !cancel;
+    elements.confirmCancel.textContent = cancel || '';
 
     let settled = false;
     const finish = value => {
@@ -2289,8 +2652,12 @@ function askConfirm({ title = 'تأكيد', message, preview = '', accept = 'ح�
     elements.confirmCancel.addEventListener('click', onCancel);
     dlg.addEventListener('close', onClose);
     dlg.showModal();
-    setTimeout(() => elements.confirmCancel.focus(), 60);
+    setTimeout(() => (cancel ? elements.confirmCancel : elements.confirmAccept).focus(), 60);
   });
+}
+
+function showNotice(title, message, preview = '') {
+  return askConfirm({ title, message, preview, accept: 'حسنًا', danger: false, cancel: null });
 }
 
 async function trashEntry(id) {
@@ -2337,19 +2704,22 @@ async function addQuickTopTask() {
 async function saveDailyDirection(day, value, statusElement) {
   const current = dailyRecordFor(day);
   const now = nowIso();
+  const record = {
+    date: day,
+    direction: clampString(value, MAX_DIRECTION_LENGTH),
+    topEntryIds: topEntriesFor(day).map(entry => entry.id),
+    closure: current?.closure || null,
+    createdAt: current?.createdAt || now,
+    updatedAt: now
+  };
   try {
-    await putRecord('daily', {
-      date: day,
-      direction: clampString(value, MAX_DIRECTION_LENGTH),
-      topEntryIds: topEntriesFor(day).map(entry => entry.id),
-      createdAt: current?.createdAt || now,
-      updatedAt: now
-    });
+    await putRecord('daily', record);
     if (statusElement) {
       statusElement.textContent = 'تم الحفظ.';
       setTimeout(() => { statusElement.textContent = 'يحفظ تلقائيًا.'; }, 1500);
     }
-    await refreshData();
+    upsertDailyRecords([record]);
+    refreshDataViews();
     return true;
   } catch (error) {
     if (statusElement) statusElement.textContent = 'تعذر الحفظ؛ بقي النص السابق محفوظًا.';
@@ -2378,6 +2748,94 @@ function scheduleSelectedDirectionSave() {
   selectedDirectionTimer = setTimeout(() => {
     saveDailyDirection(selectedDay, elements.selectedDayDirection.value, elements.selectedDayDirectionStatus);
   }, 650);
+}
+
+function dailyRecordWith(day, updates, timestamp = nowIso()) {
+  const current = dailyRecordFor(day);
+  return {
+    date: day,
+    direction: current?.direction || '',
+    topEntryIds: topEntriesFor(day).map(entry => entry.id),
+    closure: current?.closure || null,
+    createdAt: current?.createdAt || timestamp,
+    updatedAt: timestamp,
+    ...updates
+  };
+}
+
+async function saveEveningClose({ withBackup = false } = {}) {
+  const today = dateKey();
+  const tomorrow = shiftDateKey(today, 1);
+  const now = nowIso();
+  const currentClosure = dayClosureFor(today);
+  const summary = dayClosingSummary(today);
+  const tomorrowDirection = clampString(elements.eveningTomorrowDirection.value, MAX_DIRECTION_LENGTH);
+  const closure = {
+    version: 1,
+    closedAt: currentClosure?.closedAt || now,
+    updatedAt: now,
+    local: currentClosure?.local || localCreationStamp(now),
+    summary: {
+      resolved: summary.resolved,
+      completed: summary.completed,
+      openDo: summary.openDo.length
+    },
+    tomorrowDirection,
+    backupAt: currentClosure?.backupAt || null
+  };
+  const todayRecord = dailyRecordWith(today, { closure }, now);
+  const tomorrowCurrent = dailyRecordFor(tomorrow);
+  const records = [todayRecord];
+  if (tomorrowDirection || tomorrowCurrent) {
+    records.push(dailyRecordWith(tomorrow, { direction: tomorrowDirection }, now));
+  }
+
+  elements.saveEveningCloseButton.disabled = true;
+  elements.saveEveningCloseBackupButton.disabled = true;
+  try {
+    await runAtomicWrite(['daily'], (stores, track) => {
+      records.forEach(record => track(stores.daily.put(record)));
+    });
+    upsertDailyRecords(records);
+    refreshDataViews();
+    elements.eveningCloseDialog.close();
+    showToast(withBackup ? 'تم إغلاق اليوم. اختر مكان حفظ النسخة.' : 'تم إغلاق اليوم.');
+  } catch (error) {
+    reportStorageFailure(error, 'إغلاق اليوم');
+    return false;
+  } finally {
+    elements.saveEveningCloseButton.disabled = false;
+    elements.saveEveningCloseBackupButton.disabled = false;
+  }
+
+  if (withBackup) {
+    const result = await runExport(exportIcloudBundle, 'تم حفظ الإغلاق، لكن لم تُحفظ النسخة.');
+    if (result?.confirmed) await markEveningCloseBackup(today);
+  }
+  return true;
+}
+
+async function markEveningCloseBackup(day) {
+  const current = dailyRecordFor(day);
+  if (!current?.closure) return;
+  const now = nowIso();
+  const record = {
+    ...current,
+    closure: { ...current.closure, backupAt: now, updatedAt: now },
+    updatedAt: now
+  };
+  try {
+    await putRecord('daily', record);
+    upsertDailyRecords([record]);
+    refreshDataViews();
+  } catch (error) {
+    reportStorageFailure(error, 'تسجيل النسخة مع إغلاق اليوم');
+  }
+}
+
+async function handleEveningCloseSubmit(event) {
+  event.preventDefault();
+  await saveEveningClose();
 }
 
 function openCaptureDialog() {
@@ -2415,25 +2873,35 @@ async function handleCaptureSubmit(event) {
   elements.captureDialog.close();
   showToast('تم الحفظ.', 'تراجع', async () => {
     await deleteEntryCompletely(entry.id);
-    await refreshData();
+    refreshDataViews();
   }, 6000);
 }
 
 async function deleteEntryCompletely(entryId) {
-  const current = entries.find(entry => entry.id === entryId);
-  const nextEntries = entries.filter(entry => entry.id !== entryId);
-  const dailyRecord = current?.topTodayDate
-    ? dailyTopRecordForEntries(current.topTodayDate, nextEntries)
-    : null;
+  await deleteEntriesCompletely([entryId]);
+}
+
+async function deleteEntriesCompletely(entryIds) {
+  const ids = new Set(entryIds);
+  const removedEntries = entries.filter(entry => ids.has(entry.id));
+  if (!removedEntries.length) return;
+  const nextEntries = entries.filter(entry => !ids.has(entry.id));
+  const dailyUpdates = [...new Set(removedEntries.map(entry => entry.topTodayDate).filter(Boolean))]
+    .map(day => dailyTopRecordForEntries(day, nextEntries));
+  const removedAttachmentIds = attachments
+    .filter(attachment => ids.has(attachment.entryId))
+    .map(attachment => attachment.id);
   await runAtomicWrite(
-    ['entries', 'attachments', ...(dailyRecord ? ['daily'] : [])],
+    ['entries', 'attachments', ...(dailyUpdates.length ? ['daily'] : [])],
     (stores, track) => {
-      attachmentsFor(entryId).forEach(item => track(stores.attachments.delete(item.id)));
-      track(stores.entries.delete(entryId));
-      if (dailyRecord) track(stores.daily.put(dailyRecord));
+      removedAttachmentIds.forEach(id => track(stores.attachments.delete(id)));
+      removedEntries.forEach(entry => track(stores.entries.delete(entry.id)));
+      dailyUpdates.forEach(record => track(stores.daily.put(record)));
     }
   );
   entries = nextEntries;
+  attachments = attachments.filter(attachment => !ids.has(attachment.entryId));
+  upsertDailyRecords(dailyUpdates);
 }
 
 async function handleAttachmentFiles(fileList, target, { imagesOnly = false } = {}) {
@@ -2596,7 +3064,11 @@ function openEditDialog(entryId) {
   elements.editEntryId.value = entry.id;
   elements.editText.value = entry.text || '';
   setEditTextUnlocked(false);
-  elements.editPath.value = hasOwn(ROUTABLE_PATHS, entry.path) ? entry.path : 'consider';
+  const editPathOptions = entry.path === 'untriaged'
+    ? { untriaged: 'غير مفرز', ...ROUTABLE_PATH_OPTIONS }
+    : ROUTABLE_PATH_OPTIONS;
+  fillSelect(elements.editPath, editPathOptions);
+  elements.editPath.value = hasOwn(editPathOptions, entry.path) ? entry.path : 'consider';
   updateEditPathAgeHint(entry);
   elements.editDueDate.value = entry.dueDate || '';
   elements.editEntryAge.querySelector('strong').textContent = ageDaysLabel(entryAgeDays(entry));
@@ -2611,7 +3083,9 @@ function openEditDialog(entryId) {
 function setEditTextUnlocked(unlocked, { focus = false } = {}) {
   elements.editText.readOnly = !unlocked;
   elements.editText.classList.toggle('is-unlocked', unlocked);
-  elements.editTextUnlockButton.textContent = unlocked ? '✓' : '✎';
+  elements.editTextUnlockButton.replaceChildren(
+    uiIcon(unlocked ? 'check' : 'edit')
+  );
   elements.editTextUnlockButton.setAttribute('aria-pressed', String(unlocked));
   elements.editTextUnlockButton.setAttribute('aria-label', unlocked ? 'إنهاء تعديل النص' : 'تعديل النص');
   elements.editTextUnlockButton.title = unlocked ? 'إنهاء تعديل النص' : 'تعديل النص';
@@ -2702,7 +3176,7 @@ async function handleEditSubmit(event) {
       addedAttachments,
       removedAttachmentIds: [...editRemovedAttachmentIds]
     });
-    await refreshData();
+    refreshDataViews();
   } catch (error) {
     reportStorageFailure(error, 'حفظ التعديل');
     return;
@@ -2721,8 +3195,9 @@ async function deleteEditedEntry() {
 async function cleanOldTrash() {
   const cutoff = Date.now() - TRASH_RETENTION_DAYS * DAY;
   const expired = entries.filter(entry => entry.status === 'trash' && entry.deletedAt && new Date(entry.deletedAt).getTime() < cutoff);
-  for (const entry of expired) await deleteEntryCompletely(entry.id);
-  if (expired.length) await refreshData();
+  if (!expired.length) return;
+  await deleteEntriesCompletely(expired.map(entry => entry.id));
+  refreshDataViews();
 }
 
 function renderSettingsState() {
@@ -2745,6 +3220,15 @@ function trashDaysRemaining(entry) {
   if (!deletedAt) return TRASH_RETENTION_DAYS;
   const elapsedDays = Math.max(0, Math.floor((Date.now() - new Date(deletedAt).getTime()) / DAY));
   return Math.max(0, TRASH_RETENTION_DAYS - elapsedDays);
+}
+
+function statusBeforeTrash(entry) {
+  const event = entryEventLog(entry).slice().reverse().find(item =>
+    item.type === 'status_changed'
+      && item.to === 'trash'
+      && ['open', 'done', 'closed'].includes(item.from)
+  );
+  return event?.from || 'open';
 }
 
 function renderTrashDialog() {
@@ -2781,8 +3265,8 @@ function renderTrashDialog() {
     const actions = document.createElement('div');
     actions.className = 'trash-entry-actions';
     actions.append(
-      actionButton('استعادة', () => restoreTrashEntry(entry.id), 'primary', '↻'),
-      actionButton('حذف نهائي', () => deleteTrashEntry(entry.id), 'danger', '⌫')
+      actionButton('استعادة', () => restoreTrashEntry(entry.id), 'primary', 'reopen'),
+      actionButton('حذف نهائي', () => deleteTrashEntry(entry.id), 'danger', 'trash')
     );
     row.append(main, actions);
     return row;
@@ -2796,7 +3280,9 @@ function openTrashDialog() {
 }
 
 async function restoreTrashEntry(entryId) {
-  const restored = await updateEntry(entryId, { status: 'open', deletedAt: null });
+  const entry = entries.find(item => item.id === entryId && item.status === 'trash');
+  if (!entry) return;
+  const restored = await updateEntry(entryId, { status: statusBeforeTrash(entry), deletedAt: null });
   if (restored) showToast('تمت استعادة الالتقاطة.');
 }
 
@@ -2811,15 +3297,28 @@ async function deleteTrashEntry(entryId) {
   });
   if (!ok) return;
   await deleteEntryCompletely(entry.id);
-  await refreshData();
+  refreshDataViews();
   showToast('تم الحذف نهائيًا.');
 }
 
 async function restoreTrash() {
   const trash = trashEntries();
   if (!trash.length) return;
-  await putMany('entries', trash.map(entry => buildUpdatedEntry(entry, { status: 'open' })));
-  await refreshData();
+  const restoredEntries = trash.map(entry => buildUpdatedEntry(entry, {
+    status: statusBeforeTrash(entry),
+    deletedAt: null
+  }));
+  const restoredById = new Map(restoredEntries.map(entry => [entry.id, entry]));
+  const nextEntries = entries.map(entry => restoredById.get(entry.id) || entry);
+  const dailyUpdates = [...new Set(restoredEntries.map(entry => entry.topTodayDate).filter(Boolean))]
+    .map(day => dailyTopRecordForEntries(day, nextEntries));
+  await runAtomicWrite(['entries', ...(dailyUpdates.length ? ['daily'] : [])], (stores, track) => {
+    restoredEntries.forEach(entry => track(stores.entries.put(entry)));
+    dailyUpdates.forEach(record => track(stores.daily.put(record)));
+  });
+  entries = nextEntries;
+  upsertDailyRecords(dailyUpdates);
+  refreshDataViews();
   showToast(`تمت استعادة ${trash.length} عناصر.`);
 }
 
@@ -2832,8 +3331,8 @@ async function emptyTrash() {
     accept: 'إفراغ نهائيًا'
   });
   if (!ok) return;
-  for (const entry of trash) await deleteEntryCompletely(entry.id);
-  await refreshData();
+  await deleteEntriesCompletely(trash.map(entry => entry.id));
+  refreshDataViews();
   showToast('تم إفراغ المحذوفات.');
 }
 
@@ -2961,7 +3460,7 @@ async function updateBackupVerificationStatus() {
     elements.backupVerificationStatus.textContent = verifiedAt
       ? 'الفحص السابق كان بنيوياً فقط. افحص نسخة حديثة للتحقق من المرفقات ببصمات SHA-256.'
       : 'لم تُفحص نسخة حديثة ببصمات SHA-256 بعد. الفحص لا يدمج أو يغيّر إدخالاتك.';
-    backupVerificationDue = entries.length > 0 || dailyRecords.some(record => record.direction);
+    backupVerificationDue = entries.length > 0 || dailyRecords.some(dailyRecordHasContent);
   } else {
     const ageDays = Math.floor((Date.now() - new Date(verifiedAt).getTime()) / DAY);
     backupVerificationDue = ageDays >= BACKUP_VERIFICATION_REMINDER_DAYS;
@@ -2977,7 +3476,7 @@ async function updateBackupVerificationStatus() {
 }
 
 async function maybeRemindBackup() {
-  const hasUserData = entries.length > 0 || dailyRecords.some(record => record.direction);
+  const hasUserData = entries.length > 0 || dailyRecords.some(dailyRecordHasContent);
   if (!hasUserData || !await updateBackupStatus()) return false;
   const lastReminderAt = await getSetting('lastBackupReminderAt');
   if (lastReminderAt && validIso(lastReminderAt)
@@ -2988,7 +3487,7 @@ async function maybeRemindBackup() {
 }
 
 async function maybeRemindBackupVerification() {
-  const hasUserData = entries.length > 0 || dailyRecords.some(record => record.direction);
+  const hasUserData = entries.length > 0 || dailyRecords.some(dailyRecordHasContent);
   if (!hasUserData || !await updateBackupVerificationStatus()) return;
   const lastReminderAt = await getSetting('lastBackupVerificationReminderAt');
   if (lastReminderAt && validIso(lastReminderAt)
@@ -3233,6 +3732,17 @@ function buildMarkdown() {
     const dayEntries = entriesForDate(day);
     sections.push(`# ${dayName(day)} · ${formatDateKey(day)}`, '');
     if (record?.direction) sections.push(`> ${escapeMarkdown(record.direction)}`, '');
+    if (record?.closure) {
+      const closure = record.closure;
+      sections.push('## إغلاق اليوم', '');
+      sections.push(`- حُسم: ${closure.summary.resolved}`);
+      sections.push(`- أُنجز: ${closure.summary.completed}`);
+      sections.push(`- بقي في نفّذ: ${closure.summary.openDo}`);
+      if (closure.tomorrowDirection) {
+        sections.push(`- توجّه الغد: ${escapeMarkdown(closure.tomorrowDirection)}`);
+      }
+      sections.push('');
+    }
     const top = topEntriesFor(day);
     sections.push('## أهم المهام', '');
     if (!top.length) sections.push('_لا توجد._');
@@ -3268,7 +3778,7 @@ function escapeMarkdown(value) {
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
-    .replace(/([\\`*_{}\[\]()#+.!|-])/g, '\\$1');
+    .replace(/([\\`*_\[\]])/g, '\\$1');
 }
 
 async function deliverFile(name, content, type) {
@@ -3335,7 +3845,10 @@ async function importJsonFiles(fileList) {
     if (!approved) return;
     const importBatch = { entries: [], attachments: [], daily: [], settings: [] };
     for (const descriptor of ordered) {
-      const batch = await normalizeImportPayload(descriptor.data, { verifyAttachmentIntegrity: false });
+      const batch = await normalizeImportPayload(descriptor.data, {
+        verifyAttachmentIntegrity: false,
+        prevalidatedAttachments: descriptor.normalizedAttachments
+      });
       for (const storeName of ['entries', 'attachments', 'daily', 'settings']) {
         for (const value of batch[storeName]) importBatch[storeName].push(value);
       }
@@ -3351,11 +3864,11 @@ async function importJsonFiles(fileList) {
       : `اكتمل استيراد ${importedRecords} سجلات من نسخة قديمة بلا بصمات.`);
   } catch (error) {
     if (importCommitted) {
-      alert('تم استيراد البيانات كاملة، لكن تعذر تحديث حالة الفحص. أعد فتح التطبيق وتحقق من العدد.');
+      await showNotice('اكتمل الاستيراد', 'تم استيراد البيانات كاملة، لكن تعذر تحديث حالة الفحص. أعد فتح التطبيق وتحقق من العدد.');
     } else {
-      alert(isQuotaExceededError(error)
+      await showNotice('تعذر الاستيراد', isQuotaExceededError(error)
         ? `${storageFailureMessage(error, 'استيراد النسخة')} لم يُستورد أي سجل.`
-        : `تعذر الاستيراد: ${error.message || 'ملف غير صالح'}`);
+        : `${error.message || 'ملف غير صالح'}`);
     }
   } finally {
     elements.importInput.value = '';
@@ -3368,17 +3881,20 @@ async function verifyBackupFiles(fileList) {
   try {
     const report = await readBackupFileSet(files, false);
     for (const descriptor of report.ordered) {
-      await normalizeImportPayload(descriptor.data, { verifyAttachmentIntegrity: false });
+      await normalizeImportPayload(descriptor.data, {
+        verifyAttachmentIntegrity: false,
+        prevalidatedAttachments: descriptor.normalizedAttachments
+      });
     }
     await recordBackupVerification(report);
     const partsText = report.ordered.length > 1 ? ` · ${report.ordered.length} أجزاء` : '';
     if (report.integrityVerified) {
-      alert(`النسخة سليمة ببصمات SHA-256.\nالإدخالات: ${report.entryCount} · الأيام: ${report.dailyCount} · المرفقات: ${report.attachmentCount}${partsText}\nتم التحقق من كل مرفق ومن الأجزاء والحزمة، ولم تُدمج أو تتغيّر بياناتك.`);
+      await showNotice('النسخة سليمة', `النسخة سليمة ببصمات SHA-256.\nالإدخالات: ${report.entryCount} · الأيام: ${report.dailyCount} · المرفقات: ${report.attachmentCount}${partsText}\nتم التحقق من كل مرفق ومن الأجزاء والحزمة، ولم تُدمج أو تتغيّر بياناتك.`);
     } else {
-      alert(`اجتازت النسخة الفحص البنيوي فقط.\nالإدخالات: ${report.entryCount} · الأيام: ${report.dailyCount} · المرفقات: ${report.attachmentCount}${partsText}\nهذه نسخة قديمة بلا بصمات SHA-256؛ لا يمكن ضمان سلامة بايتات المرفقات، ولم تُدمج أو تتغيّر بياناتك.`);
+      await showNotice('فحص بنيوي فقط', `اجتازت النسخة الفحص البنيوي فقط.\nالإدخالات: ${report.entryCount} · الأيام: ${report.dailyCount} · المرفقات: ${report.attachmentCount}${partsText}\nهذه نسخة قديمة بلا بصمات SHA-256؛ لا يمكن ضمان سلامة بايتات المرفقات، ولم تُدمج أو تتغيّر بياناتك.`);
     }
   } catch (error) {
-    alert(`فشل فحص النسخة: ${error.message || 'ملف غير صالح'}`);
+    await showNotice('فشل فحص النسخة', error.message || 'ملف غير صالح');
   } finally {
     elements.verifyBackupInput.value = '';
   }
@@ -3409,7 +3925,7 @@ async function readBackupFileSet(files, includeExistingEntries) {
   }
   const integrityProtected = await verifyImportIntegritySet(ordered);
   for (const descriptor of ordered) {
-    await validateImportedAttachments(descriptor.data, descriptor.file.name);
+    descriptor.normalizedAttachments = await validateImportedAttachments(descriptor.data, descriptor.file.name);
   }
   assertImportAttachmentLinks(ordered, includeExistingEntries);
   return {
@@ -3590,7 +4106,10 @@ function assertImportAttachmentLinks(descriptors, includeExistingEntries = true)
   }
 }
 
-async function normalizeImportPayload(data, { verifyAttachmentIntegrity = true } = {}) {
+async function normalizeImportPayload(data, {
+  verifyAttachmentIntegrity = true,
+  prevalidatedAttachments = null
+} = {}) {
   if (!data || typeof data !== 'object') throw new Error('ملف النسخة غير صالح.');
   if (Array.isArray(data.cards) && Array.isArray(data.outcomes)) return normalizeV0Import(data.cards);
   const schemaVersion = importedBackupSchemaVersion(data);
@@ -3599,13 +4118,17 @@ async function normalizeImportPayload(data, { verifyAttachmentIntegrity = true }
   const importedAttachments = Array.isArray(data.attachments) ? data.attachments : [];
   if (importedAttachments.length > MAX_IMPORT_ATTACHMENTS) throw new Error(`النسخة تحتوي أكثر من ${MAX_IMPORT_ATTACHMENTS} مرفقات.`);
 
-  const normalizedAttachments = [];
-  for (let index = 0; index < importedAttachments.length; index += 1) {
-    normalizedAttachments.push(await sanitizeImportedAttachment(importedAttachments[index], {
-      schemaVersion,
-      verifyDigest: verifyAttachmentIntegrity,
-      label: `المرفق ${index + 1}`
-    }));
+  const normalizedAttachments = Array.isArray(prevalidatedAttachments)
+    ? prevalidatedAttachments
+    : [];
+  if (!Array.isArray(prevalidatedAttachments)) {
+    for (let index = 0; index < importedAttachments.length; index += 1) {
+      normalizedAttachments.push(await sanitizeImportedAttachment(importedAttachments[index], {
+        schemaVersion,
+        verifyDigest: verifyAttachmentIntegrity,
+        label: `المرفق ${index + 1}`
+      }));
+    }
   }
   if (normalizedAttachments.length !== importedAttachments.length) {
     throw new Error(`عدد المرفقات المقروءة (${normalizedAttachments.length}) لا يطابق العدد المعلن (${importedAttachments.length}).`);
@@ -3721,11 +4244,12 @@ function sanitizeImportedPathLog(value, currentPath, createdAt, updatedAt, label
   if (value.length > MAX_PATH_LOG_ENTRIES) {
     throw new Error(`${label}: سجل المسارات يتجاوز الحد الآمن (${MAX_PATH_LOG_ENTRIES}).`);
   }
+  const activeValue = pathLogWithoutRemovedPath(value);
   let previousTime = -Infinity;
   let previousPath = null;
   const createdTime = new Date(createdAt).getTime();
   const updatedTime = new Date(updatedAt).getTime();
-  const log = value.map((event, index) => {
+  const log = activeValue.map((event, index) => {
     const eventLabel = `${label}، انتقال المسار ${index + 1}`;
     if (!event || typeof event !== 'object' || Array.isArray(event) || !hasOwn(PATHS, event.path)) {
       throw new Error(`${eventLabel}: المسار غير صالح.`);
@@ -3768,10 +4292,11 @@ function sanitizeImportedEventLog(value, createdAt, updatedAt, label) {
   if (value.length > MAX_ENTRY_EVENT_LOG_ENTRIES) {
     throw new Error(`${label}: سجل الأحداث يتجاوز الحد الآمن (${MAX_ENTRY_EVENT_LOG_ENTRIES}).`);
   }
+  const activeValue = eventLogWithoutRemovedPath(value);
   const createdTime = new Date(createdAt).getTime();
   const updatedTime = new Date(updatedAt).getTime();
   let previousTime = -Infinity;
-  return value.map((event, index) => {
+  return activeValue.map((event, index) => {
     const eventLabel = `${label}، الحدث ${index + 1}`;
     if (!event || typeof event !== 'object' || Array.isArray(event)
         || !ENTRY_EVENT_TYPES.has(event.type)) {
@@ -3815,6 +4340,7 @@ function sanitizeImportedEventLog(value, createdAt, updatedAt, label) {
       timeZone,
       utcOffsetMinutes
     };
+    if (event.estimated === true) sanitized.estimated = true;
     if (event.type === 'created') {
       if (event.to == null || event.to === '') sanitized.to = null;
       else {
@@ -3904,21 +4430,21 @@ function sanitizeImportedEntry(entry, label = 'الإدخال') {
 }
 
 async function validateImportedAttachments(data, fileName) {
-  if (Array.isArray(data.cards) && Array.isArray(data.outcomes)) return;
+  if (Array.isArray(data.cards) && Array.isArray(data.outcomes)) return [];
   const schemaVersion = importedBackupSchemaVersion(data, fileName);
   const importedAttachments = Array.isArray(data.attachments) ? data.attachments : [];
-  let validCount = 0;
+  const normalizedAttachments = [];
   for (let index = 0; index < importedAttachments.length; index += 1) {
-    await sanitizeImportedAttachment(importedAttachments[index], {
+    normalizedAttachments.push(await sanitizeImportedAttachment(importedAttachments[index], {
       schemaVersion,
       verifyDigest: true,
       label: `${fileName}: المرفق ${index + 1}`
-    });
-    validCount += 1;
+    }));
   }
-  if (validCount !== importedAttachments.length) {
-    throw new Error(`${fileName}: عدد المرفقات المقروءة (${validCount}) لا يطابق العدد المعلن (${importedAttachments.length}).`);
+  if (normalizedAttachments.length !== importedAttachments.length) {
+    throw new Error(`${fileName}: عدد المرفقات المقروءة (${normalizedAttachments.length}) لا يطابق العدد المعلن (${importedAttachments.length}).`);
   }
+  return normalizedAttachments;
 }
 
 async function sanitizeImportedAttachment(item, { schemaVersion = 1, verifyDigest = true, label = 'المرفق' } = {}) {
@@ -3956,16 +4482,68 @@ async function sanitizeImportedAttachment(item, { schemaVersion = 1, verifyDiges
   };
 }
 
+function sanitizeImportedDayClosure(value, day, recordUpdatedAt) {
+  if (value == null) return null;
+  const label = `إغلاق يوم ${day}`;
+  if (!value || typeof value !== 'object' || Array.isArray(value) || Number(value.version) !== 1) {
+    throw new Error(`${label}: السجل غير صالح.`);
+  }
+  const closedAt = validIso(value.closedAt);
+  const updatedAt = validIso(value.updatedAt) || closedAt;
+  if (!closedAt || !updatedAt) throw new Error(`${label}: وقت الإغلاق غير صالح.`);
+  const closedTime = new Date(closedAt).getTime();
+  const updatedTime = new Date(updatedAt).getTime();
+  const recordUpdatedTime = new Date(recordUpdatedAt).getTime();
+  if (updatedTime < closedTime || updatedTime > recordUpdatedTime) {
+    throw new Error(`${label}: ترتيب أوقات الإغلاق غير صالح.`);
+  }
+  const local = sanitizeImportedCreatedLocal(value.local, closedAt, label);
+  if (!local || local.date !== day) throw new Error(`${label}: التاريخ المحلي لا يطابق اليوم.`);
+  if (!value.summary || typeof value.summary !== 'object' || Array.isArray(value.summary)) {
+    throw new Error(`${label}: الملخص غير صالح.`);
+  }
+  const summary = {};
+  for (const field of ['resolved', 'completed', 'openDo']) {
+    const count = Number(value.summary[field]);
+    if (!Number.isInteger(count) || count < 0 || count > MAX_IMPORT_ENTRIES) {
+      throw new Error(`${label}: قيمة ${field} غير صالحة.`);
+    }
+    summary[field] = count;
+  }
+  const backupAt = value.backupAt == null ? null : validIso(value.backupAt);
+  if (value.backupAt != null && !backupAt) throw new Error(`${label}: وقت النسخة غير صالح.`);
+  if (backupAt) {
+    const backupTime = new Date(backupAt).getTime();
+    if (backupTime < closedTime || backupTime > updatedTime) {
+      throw new Error(`${label}: وقت النسخة خارج مدة الإغلاق.`);
+    }
+  }
+  return {
+    version: 1,
+    closedAt,
+    updatedAt,
+    local,
+    summary,
+    tomorrowDirection: clampString(value.tomorrowDirection, MAX_DIRECTION_LENGTH),
+    backupAt
+  };
+}
+
 function sanitizeImportedDaily(record) {
   const key = validDateKey(record?.date);
   if (!key) return null;
   const createdAt = validIso(record?.createdAt) || nowIso();
+  const updatedAt = validIso(record?.updatedAt) || createdAt;
+  if (new Date(updatedAt).getTime() < new Date(createdAt).getTime()) {
+    throw new Error(`سجل يوم ${key}: updatedAt يسبق createdAt.`);
+  }
   return {
     date: key,
     direction: clampString(record?.direction, MAX_DIRECTION_LENGTH),
     topEntryIds: Array.isArray(record?.topEntryIds) ? record.topEntryIds.map(id => safeId(id, 'entry')).slice(0, 3) : [],
+    closure: sanitizeImportedDayClosure(record?.closure, key, updatedAt),
     createdAt,
-    updatedAt: validIso(record?.updatedAt) || createdAt
+    updatedAt
   };
 }
 
@@ -4075,11 +4653,11 @@ async function runLegacyMigration(dbName = null) {
     showToast('اكتملت هجرة v0.');
   } catch (error) {
     if (migrationCommitted) {
-      alert('تم استيراد عناصر v0 كاملة، لكن تعذر تسجيل اكتمال الهجرة. تحقق من العدد قبل إعادة المحاولة.');
+      await showNotice('اكتملت الهجرة', 'تم استيراد عناصر v0 كاملة، لكن تعذر تسجيل اكتمال الهجرة. تحقق من العدد قبل إعادة المحاولة.');
     } else {
-      alert(isQuotaExceededError(error)
+      await showNotice('تعذرت هجرة v0', isQuotaExceededError(error)
         ? `${storageFailureMessage(error, 'هجرة v0')} لم يُستورد أي سجل.`
-        : `تعذرت هجرة v0: ${error.message || 'خطأ غير معروف'}`);
+        : `${error.message || 'خطأ غير معروف'}`);
     }
   }
 }
@@ -4126,10 +4704,16 @@ function showOnlyView(name) {
 
 function switchView(name) {
   const changed = currentView !== name;
+  if (changed) viewScrollPositions.set(currentView, window.scrollY);
   currentView = name;
   showOnlyView(name);
   renderCurrentView();
-  if (changed) window.scrollTo(0, 0);
+  if (changed) {
+    requestAnimationFrame(() => window.scrollTo({
+      top: viewScrollPositions.get(name) || 0,
+      behavior: 'auto'
+    }));
+  }
 }
 
 function showToast(message, actionLabel = '', action = null, duration = 3500) {
@@ -4193,6 +4777,9 @@ function bindEvents() {
   });
   elements.directionButton.addEventListener('click', openDirectionDialog);
   elements.directionForm.addEventListener('submit', handleDirectionSubmit);
+  elements.openEveningCloseButton.addEventListener('click', openEveningCloseDialog);
+  elements.eveningCloseForm.addEventListener('submit', handleEveningCloseSubmit);
+  elements.saveEveningCloseBackupButton.addEventListener('click', () => saveEveningClose({ withBackup: true }));
   elements.quickTaskInput.addEventListener('keydown', event => {
     if (event.key === 'Enter' && !event.isComposing) {
       event.preventDefault();
@@ -4271,7 +4858,7 @@ function bindEvents() {
   $$('[data-close-dialog]').forEach(button => button.addEventListener('click', () => {
     document.getElementById(button.dataset.closeDialog)?.close();
   }));
-  [elements.topTaskDialog, elements.captureDialog, elements.directionDialog, elements.editDialog,
+  [elements.topTaskDialog, elements.captureDialog, elements.directionDialog, elements.eveningCloseDialog, elements.editDialog,
     elements.entryDetailsDialog, elements.fileViewerDialog, elements.trashDialog, elements.settingsDialog].forEach(dialog => {
     dialog.addEventListener('click', event => {
       if (event.target === dialog) dialog.close();
@@ -4305,9 +4892,11 @@ async function runExport(task, failureMessage) {
     } else if (!result.confirmed) {
       showToast('بدأ التنزيل، لكن لم يُسجّل كنسخة مؤكدة. تحقق من تطبيق الملفات.');
     }
+    return result;
   } catch (error) {
     console.error('فشل التصدير:', error);
     showToast(failureMessage);
+    return null;
   }
 }
 
@@ -4345,8 +4934,8 @@ async function init() {
   window.setInterval(refreshForNewDay, 60 * 1000);
 }
 
-init().catch(error => {
+init().catch(async error => {
   console.error(error);
-  alert('تعذر تشغيل مرساة. حدّث الصفحة أو تأكد من سماح المتصفح بالتخزين المحلي.');
+  await showNotice('تعذر تشغيل مرساة', 'حدّث الصفحة أو تأكد من سماح المتصفح بالتخزين المحلي.');
 });
 })();

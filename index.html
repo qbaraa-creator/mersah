@@ -4,7 +4,6 @@
   <meta charset="utf-8">
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; base-uri 'none'; object-src 'none'; form-action 'none'; connect-src 'self'; img-src 'self' data: blob:; font-src 'self'; media-src 'none'; frame-src 'none'; manifest-src 'self'; worker-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'">
   <meta name="referrer" content="no-referrer">
-  <meta http-equiv="Permissions-Policy" content="geolocation=(), payment=(), usb=(), bluetooth=(), accelerometer=(), gyroscope=(), magnetometer=()">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="theme-color" id="themeColor" content="#f3f2f2">
   <meta name="apple-mobile-web-app-capable" content="yes">
@@ -97,7 +96,6 @@
       --track-do: #006c7a;
       --track-consider: #a61e5c;
       --track-waiting: #865400;
-      --track-reference: #536981;
       --track-on-color: #ffffff;
 
       --toast-bg: #2d2b2b;
@@ -135,7 +133,7 @@
         --color-card: #2d2b2b;
         --color-text: #f8f4f4;
         --color-muted: #aba8a8;
-        --color-divider: #777373;
+        --color-divider: #8a8686;
         --color-hairline: color-mix(in srgb, #f8f4f4 12%, transparent);
 
         --color-accent: #62c5ee;
@@ -156,7 +154,6 @@
         --track-do: #62c5ee;
         --track-consider: #ff90b1;
         --track-waiting: #e0aa58;
-        --track-reference: #a9bdd2;
         --track-on-color: #171717;
 
         /* سلّم neutral مقلوب في الداكن: الشرائح والمقياس تستعمله مباشرة،
@@ -209,6 +206,19 @@
     }
 
     button, input, textarea, select { font: inherit; color: inherit; }
+    .ui-icon {
+      width: 1.15em;
+      height: 1.15em;
+      display: inline-block;
+      flex: none;
+      fill: none;
+      stroke: currentColor;
+      stroke-width: 1.8;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+      vertical-align: -.15em;
+    }
+    .ui-icon.is-filled { fill: currentColor; }
     input[type="date"], input[type="month"] {
       direction: ltr;
       unicode-bidi: isolate;
@@ -355,9 +365,12 @@
       min-width: 0;
       flex: 1;
       min-height: var(--tap);
-      padding: 12px 2px;
+      padding: 12px 8px;
+      border-radius: var(--radius-sm);
       cursor: pointer;
     }
+    .direction-summary:hover,
+    .direction-summary:active { background: color-mix(in srgb, var(--color-text) 6%, transparent); }
     .direction-summary-copy {
       display: grid; gap: 3px;
       min-width: 0; flex: 1;
@@ -371,13 +384,13 @@
       color: var(--color-text);
     }
     .direction-compass {
-      display: inline-block;
+      display: inline-flex;
+      align-items: center;
       margin-inline-end: 6px;
       color: var(--color-accent-ink);
-      font-family: var(--font-body);
-      font-size: 22px;
       line-height: 1;
     }
+    .direction-compass .ui-icon { width: 24px; height: 24px; }
     .direction-summary-value {
       font-size: 17px; font-weight: 600;
       line-height: 1.65;
@@ -385,7 +398,6 @@
       overflow-wrap: anywhere;
       flex: 1; min-width: 0;
     }
-    .direction-summary-arrow { color: var(--color-accent-ink); font-size: 21px; flex: none; }
     .direction-field { min-height: 76px; resize: none; }
 
     /* ── الأزرار ── */
@@ -500,6 +512,90 @@
     }
     .top-task-check .checkbox { margin: 0; }
 
+    /* ── إغلاق اليوم ── */
+
+    .day-close-trigger {
+      all: unset;
+      box-sizing: border-box;
+      width: 100%;
+      min-height: 56px;
+      display: grid;
+      grid-template-columns: var(--tap) minmax(0, 1fr) auto;
+      align-items: center;
+      gap: var(--space-2);
+      padding: 6px 2px;
+      border-block: 1px solid var(--color-divider);
+      cursor: pointer;
+    }
+    .day-close-trigger:active { background: color-mix(in srgb, var(--color-text) 6%, transparent); }
+    .day-close-icon {
+      width: var(--tap); height: var(--tap);
+      display: grid; place-items: center;
+      color: var(--color-accent-ink);
+    }
+    .day-close-icon .ui-icon { width: 25px; height: 25px; }
+    .day-close-copy { display: grid; gap: 2px; min-width: 0; }
+    .day-close-copy strong { font-size: 17px; font-weight: 600; }
+    .day-close-copy small {
+      color: var(--color-muted);
+      font-size: 13px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .day-close-chevron { color: var(--color-muted); font-size: 24px; }
+
+    .evening-close-sheet .dialog-inner { padding-bottom: calc(16px + var(--safe-bottom)); }
+    .evening-summary {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      margin: 2px 0;
+      border-block: 1px solid var(--color-divider);
+    }
+    .evening-summary > div {
+      min-width: 0;
+      display: grid;
+      gap: 2px;
+      padding: 10px 8px;
+      text-align: center;
+    }
+    .evening-summary > div + div { border-inline-start: 1px solid var(--color-divider); }
+    .evening-summary dt { color: var(--color-muted); font-size: 12px; }
+    .evening-summary dd { margin: 0; font-size: 23px; font-weight: 600; line-height: 1.2; }
+    .evening-open-wrap { display: grid; gap: 6px; }
+    .evening-open-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      gap: var(--space-2);
+      color: var(--color-muted);
+      font-size: 14px;
+    }
+    .evening-open-list { display: grid; gap: 1px; }
+    .evening-open-item {
+      margin: 0;
+      padding: 5px 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      font-size: 15px;
+      border-bottom: 1px solid color-mix(in srgb, var(--color-divider) 60%, transparent);
+    }
+    .evening-open-empty { margin: 0; color: var(--color-muted); font-size: 14px; }
+    .evening-closed-status { margin: 0; min-height: 20px; color: var(--color-muted); font-size: 13px; }
+
+    .archived-closure {
+      display: grid;
+      gap: 6px;
+      padding-block: 10px;
+      border-block: 1px solid var(--color-divider);
+    }
+    .archived-closure-head { display: flex; justify-content: space-between; gap: var(--space-2); }
+    .archived-closure-head h3 { margin: 0; font-size: 17px; }
+    .archived-closure-head span { color: var(--color-muted); font-size: 13px; }
+    .archived-closure-summary { margin: 0; color: var(--color-muted); font-size: 14px; }
+    .archived-closure-direction { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.65; }
+
     /* ── البطاقات: شريط المسار هو المُميّز البصري ── */
 
     .card {
@@ -517,7 +613,6 @@
     .path-do { --path-color: var(--track-do); }
     .path-consider { --path-color: var(--track-consider); }
     .path-waiting { --path-color: var(--track-waiting); }
-    .path-reference { --path-color: var(--track-reference); }
 
     .entry-heading {
       display: grid;
@@ -578,11 +673,11 @@
       color: var(--color-neutral-800);
     }
     .chip.path-untriaged, .chip.path-do, .chip.path-consider,
-    .chip.path-waiting, .chip.path-reference {
-      background: color-mix(in srgb, var(--path-color) 14%, transparent);
+    .chip.path-waiting {
+      background: color-mix(in srgb, var(--path-color) 20%, transparent);
       color: var(--path-color);
     }
-    .chip.age-chip { background: none; padding-inline: 0; color: var(--color-muted); }
+    .chip.age-chip { gap: 5px; background: none; padding-inline: 0; color: var(--color-muted); }
     .chip.overdue { background: var(--color-danger-soft); color: var(--color-danger); }
     .chip.top-marker { background: var(--color-accent-soft); color: var(--color-accent-strong); }
     .chip.status-done, .chip.status-closed { opacity: .75; }
@@ -606,6 +701,7 @@
       font-size: 20px;
       font-weight: 600;
     }
+    .action-link .ui-icon, .edit-text-toggle .ui-icon { width: 20px; height: 20px; }
     .action-link:hover { background: color-mix(in srgb, var(--color-text) 7%, transparent); }
     .action-link.primary { color: var(--color-accent-ink); }
     .action-link.top { color: var(--color-accent-ink); }
@@ -624,7 +720,7 @@
       font-weight: 600;
     }
     .path-menu > summary::-webkit-details-marker { display: none; }
-    .path-menu-icon { font-size: 26px; line-height: 1; }
+    .path-menu-icon { width: 27px; height: 27px; }
     .path-menu > summary::after { content: '‹'; font-size: 15px; }
     .path-menu[open] > summary { background: color-mix(in srgb, var(--color-text) 7%, transparent); }
     .path-menu-options {
@@ -645,7 +741,7 @@
       min-height: var(--tap); display: flex; align-items: center; gap: 9px;
     }
     .path-option-icon {
-      width: 26px; text-align: center; font-size: 24px; line-height: 1;
+      width: 25px; height: 25px;
       color: var(--path-color, var(--color-accent-ink));
     }
     .path-menu-option:hover { background: color-mix(in srgb, var(--color-text) 8%, transparent); }
@@ -721,7 +817,7 @@
       font-size: 12px;
     }
     .path-backlog-name { display: inline-flex; align-items: center; gap: 5px; font-weight: 600; }
-    .path-backlog-name span:first-child { color: var(--path-color); font-size: 19px; }
+    .path-backlog-name .path-svg-icon { width: 21px; height: 21px; color: var(--path-color); }
     .path-backlog-track {
       height: 6px;
       overflow: hidden;
@@ -738,6 +834,13 @@
     .path-backlog-meta { color: var(--color-muted); text-align: end; white-space: nowrap; }
 
     .capture-heatmap { padding-block: 4px 10px; }
+    .decision-window-copy {
+      margin: 0;
+      padding: 4px 0 12px;
+      color: var(--color-muted);
+      font-size: 13px;
+      line-height: 1.65;
+    }
     .heatmap-row, .heatmap-axis {
       display: grid;
       grid-template-columns: 30px repeat(24, minmax(0, 1fr));
@@ -811,7 +914,7 @@
     .entries-path-button .count { color: inherit; opacity: .7; }
     .entries-path-name { display: inline-flex; align-items: center; gap: 4px; }
     .entries-path-icon {
-      font-size: 24px; line-height: 1;
+      width: 25px; height: 25px;
       color: var(--path-color, currentColor);
     }
     .entries-path-button.active {
@@ -821,8 +924,7 @@
     }
     .entries-path-button.active.path-do,
     .entries-path-button.active.path-consider,
-    .entries-path-button.active.path-waiting,
-    .entries-path-button.active.path-reference {
+    .entries-path-button.active.path-waiting {
       border-color: var(--path-color);
       background: var(--path-color);
       color: var(--track-on-color);
@@ -1190,6 +1292,7 @@
     }
     dialog::backdrop { background: color-mix(in srgb, #2d2b2b 50%, transparent); }
     dialog.capture-sheet, dialog.edit-sheet, dialog.confirm-sheet, dialog.top-task-dialog,
+    dialog.evening-close-sheet,
     dialog.entry-details-sheet, dialog.trash-sheet {
       width: 100%; max-width: 100%;
       margin: 0 0 0 auto;
@@ -1198,6 +1301,7 @@
       border-radius: var(--radius-lg) var(--radius-lg) 0 0;
     }
     dialog.capture-sheet .dialog-inner, dialog.edit-sheet .dialog-inner, dialog.confirm-sheet .dialog-inner,
+    dialog.evening-close-sheet .dialog-inner,
     dialog.top-task-dialog .dialog-inner, dialog.entry-details-sheet .dialog-inner,
     dialog.trash-sheet .dialog-inner {
       padding: 18px 18px calc(18px + var(--safe-bottom));
@@ -1223,6 +1327,7 @@
     }
     .edit-sheet .dialog-head { margin-bottom: 4px; }
     .edit-sheet .dialog-head h2 { font-size: 20px; }
+    .edit-dialog-title { display: flex; align-items: center; gap: 10px; min-width: 0; }
     .edit-form { display: grid; gap: 0; }
     .edit-section {
       display: grid;
@@ -1286,13 +1391,6 @@
       align-items: end;
       gap: 8px;
     }
-    .edit-field-heading {
-      min-height: 24px;
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 8px;
-    }
     .edit-age-field {
       display: inline-flex;
       align-items: center;
@@ -1301,7 +1399,7 @@
       font-size: 12px;
       white-space: nowrap;
     }
-    .edit-age-field strong { color: var(--color-text); font-size: 13px; }
+    .edit-age-field strong { color: var(--color-text); font-size: 13px; font-weight: 600; }
     .edit-date-group { min-width: 0; }
     .edit-date-group .field { width: 100%; min-width: 0; padding-inline: 8px; }
     .edit-compact-row {
@@ -1373,6 +1471,8 @@
       font-size: 16px;
       font-weight: 600;
     }
+    #entryDetailsAge, #entryDetailsPath { display: flex; align-items: center; gap: 5px; }
+    #entryDetailsPath .path-svg-icon { width: 20px; height: 20px; color: var(--path-color, var(--color-accent-ink)); }
     .entry-details-events { margin: 0; padding: 0; list-style: none; }
     .entry-event {
       position: relative;
@@ -1454,6 +1554,7 @@
       margin: 0 0 var(--space-2);
       font-size: 16px;
       line-height: 1.7;
+      white-space: pre-line;
     }
     .confirm-preview {
       margin: 0 0 var(--space-2);
@@ -1562,7 +1663,7 @@
       .inline-form { grid-template-columns: 1fr auto; }
       .entries-path-filters {
         display: grid;
-        grid-template-columns: repeat(3, minmax(0, 1fr));
+        grid-template-columns: repeat(2, minmax(0, 1fr));
         overflow-x: visible;
       }
       .entries-path-button { min-width: 0; }
@@ -1572,7 +1673,7 @@
     @media (max-width: 359px) {
       .entries-path-filters {
         display: grid;
-        grid-template-columns: repeat(3, minmax(0, 1fr));
+        grid-template-columns: repeat(2, minmax(0, 1fr));
         overflow-x: visible;
       }
       .entries-path-button { min-width: 0; }
@@ -1606,10 +1707,9 @@
           <div class="today-focus-line">
             <button class="direction-summary" id="directionButton" type="button">
               <span class="direction-summary-copy">
-                <span class="direction-summary-label"><span class="direction-compass" aria-hidden="true">⛵︎</span>توجّه اليوم</span>
+                <span class="direction-summary-label"><span class="direction-compass" aria-hidden="true"><svg class="ui-icon" viewBox="0 0 24 24" focusable="false"><path d="M12 3v14"></path><path d="M11 4 5 16h6z"></path><path d="M13 7v9h6z"></path><path d="M4 18h16l-2 3H6z"></path></svg></span>توجّه اليوم</span>
                 <span class="direction-summary-value" id="directionDisplay" dir="auto" hidden></span>
               </span>
-              <span class="direction-summary-arrow" aria-hidden="true">‹</span>
             </button>
             <div class="top-progress-dots" id="topProgress" role="img" aria-label="0 من 3 مهام مكتملة">
               <span class="top-progress-dot"></span>
@@ -1625,6 +1725,17 @@
             <button class="top-add-button" id="openTopTaskDialog" type="button" aria-label="إضافة مهمة" title="إضافة مهمة">+</button>
           </div>
           <div class="top-list" id="topTasksList"></div>
+        </section>
+
+        <section class="panel">
+          <button class="day-close-trigger" id="openEveningCloseButton" type="button">
+            <span class="day-close-icon" aria-hidden="true"><svg class="ui-icon" viewBox="0 0 24 24" focusable="false"><path d="M5 12.5 9.2 17 19 7"></path><path d="M12 2.5a9.5 9.5 0 1 0 9.5 9.5"></path></svg></span>
+            <span class="day-close-copy">
+              <strong>إغلاق اليوم</strong>
+              <small id="eveningCloseButtonStatus">رتّب الغد واحفظ نسختك</small>
+            </span>
+            <span class="day-close-chevron" aria-hidden="true">‹</span>
+          </button>
         </section>
 
         <section class="panel stack">
@@ -1643,30 +1754,6 @@
               <h2>الالتقاطات</h2>
             </div>
             <span class="count" id="entriesCount">0</span>
-          </div>
-          <dl class="analysis-summary" aria-label="مؤشرات مشتقة من السجلات المحلية لآخر سبعة أيام، دون تتبع الاستخدام">
-            <div class="analysis-row" title="نسبة الالتقاطات الحديثة التي لم تعد حاليًا في مسار للنظر">
-              <dt>معدل الحسم</dt>
-              <dd><strong id="analysisResolutionRate" dir="ltr">—</strong><small id="analysisResolutionDetail">لا التقاطات جديدة</small></dd>
-            </div>
-            <div class="analysis-row">
-              <dt>أقدم عالق</dt>
-              <dd><strong id="analysisOldestAge">—</strong><small id="analysisOldestDetail">لا عوالق</small></dd>
-            </div>
-            <div class="analysis-row">
-              <dt>إنجاز أهم المهام</dt>
-              <dd><strong id="analysisTopCompletion" dir="ltr">—</strong><small id="analysisTopDetail">آخر 7 أيام</small></dd>
-            </div>
-          </dl>
-          <div class="analysis-details">
-            <details class="insight-panel" id="pathBacklogDetails">
-              <summary><span>تكدّس المسارات</span><span class="insight-summary-value" id="pathBacklogSummary">لا إدخالات</span></summary>
-              <div class="path-backlog-list" id="pathBacklogList"></div>
-            </details>
-            <details class="insight-panel" id="captureHeatmapDetails">
-              <summary><span>أوقات الالتقاط</span><span class="insight-summary-value" id="captureHeatmapSummary">آخر 90 يومًا</span></summary>
-              <div class="capture-heatmap" id="captureHeatmap" role="img" aria-label="لا توجد التقاطات في آخر 90 يومًا"></div>
-            </details>
           </div>
           <input class="field" id="entriesSearchInput" type="search" maxlength="200" placeholder="ابحث بالكلمة أو الحرف…" autocomplete="off" aria-label="البحث في الالتقاطات">
           <div class="entries-path-filters" id="entriesPathFilters" role="group" aria-label="تصفية الالتقاطات حسب المسار"></div>
@@ -1693,6 +1780,37 @@
                 </select>
               </div>
               <button class="quiet-btn filter-clear" id="clearEntriesFiltersButton" type="button">مسح الكل</button>
+            </div>
+          </details>
+          <details class="insight-panel analysis-overview">
+            <summary><span>المؤشرات</span><span class="insight-summary-value">من سجلاتك المحلية</span></summary>
+            <dl class="analysis-summary" aria-label="مؤشرات مشتقة من السجلات المحلية لآخر سبعة أيام، دون تتبع الاستخدام">
+              <div class="analysis-row" title="نسبة الالتقاطات الحديثة التي لم تعد حاليًا في مسار للنظر">
+                <dt>معدل الحسم</dt>
+                <dd><strong id="analysisResolutionRate" dir="ltr">—</strong><small id="analysisResolutionDetail">لا التقاطات جديدة</small></dd>
+              </div>
+              <div class="analysis-row">
+                <dt>أقدم عالق</dt>
+                <dd><strong id="analysisOldestAge">—</strong><small id="analysisOldestDetail">لا عوالق</small></dd>
+              </div>
+              <div class="analysis-row">
+                <dt>إنجاز أهم المهام</dt>
+                <dd><strong id="analysisTopCompletion" dir="ltr">—</strong><small id="analysisTopDetail">آخر 7 أيام</small></dd>
+              </div>
+            </dl>
+            <div class="analysis-details">
+              <details class="insight-panel" id="pathBacklogDetails">
+                <summary><span>تكدّس المسارات</span><span class="insight-summary-value" id="pathBacklogSummary">لا إدخالات</span></summary>
+                <div class="path-backlog-list" id="pathBacklogList"></div>
+              </details>
+              <details class="insight-panel" id="captureHeatmapDetails">
+                <summary><span>أوقات الالتقاط</span><span class="insight-summary-value" id="captureHeatmapSummary">آخر 90 يومًا</span></summary>
+                <div class="capture-heatmap" id="captureHeatmap" role="img" aria-label="لا توجد التقاطات في آخر 90 يومًا"></div>
+              </details>
+              <details class="insight-panel" id="decisionWindowDetails">
+                <summary><span>نافذة الحسم</span><span class="insight-summary-value" id="decisionWindowSummary">0/30 حدثًا</span></summary>
+                <p class="decision-window-copy" id="decisionWindowCopy">تظهر بعد 30 حدث حسم موثق.</p>
+              </details>
             </div>
           </details>
           <div class="tiny-note" id="entriesResultsNote" role="status" aria-live="polite"></div>
@@ -1820,27 +1938,59 @@
     </div>
   </dialog>
 
+  <dialog class="evening-close-sheet" id="eveningCloseDialog">
+    <div class="dialog-inner">
+      <div class="dialog-head">
+        <h2>إغلاق اليوم</h2>
+        <button class="dialog-close" data-close-dialog="eveningCloseDialog" aria-label="إغلاق">×</button>
+      </div>
+      <div class="stack">
+        <dl class="evening-summary" aria-label="ملخص اليوم">
+          <div><dt>حُسم</dt><dd id="eveningResolvedCount">0</dd></div>
+          <div><dt>أُنجز</dt><dd id="eveningCompletedCount">0</dd></div>
+          <div><dt>في نفّذ</dt><dd id="eveningOpenDoCount">0</dd></div>
+        </dl>
+        <div class="evening-open-wrap">
+          <div class="evening-open-head"><span>المفتوح في نفّذ</span><span id="eveningOpenDoMore"></span></div>
+          <div class="evening-open-list" id="eveningOpenDoList"></div>
+        </div>
+        <form class="stack" id="eveningCloseForm">
+          <div class="form-group">
+            <label for="eveningTomorrowDirection">توجّه الغد</label>
+            <textarea class="field direction-field" id="eveningTomorrowDirection" maxlength="500" rows="3" dir="auto" placeholder="ما الذي يستحق أن يقود الغد؟"></textarea>
+          </div>
+          <p class="evening-closed-status" id="eveningClosedStatus" role="status" aria-live="polite"></p>
+          <div class="dialog-actions">
+            <button type="button" class="quiet-btn" data-close-dialog="eveningCloseDialog">إلغاء</button>
+            <button type="submit" class="secondary-btn" id="saveEveningCloseButton">حفظ</button>
+            <button type="button" class="primary-btn" id="saveEveningCloseBackupButton">حفظ ونسخة</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </dialog>
+
   <dialog class="edit-sheet" id="editDialog">
     <div class="dialog-inner">
       <div class="dialog-head">
-        <h2>تحرير الالتقاطة</h2>
+        <div class="edit-dialog-title">
+          <h2>تحرير الالتقاطة</h2>
+          <div class="edit-age-field" id="editEntryAge"><svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M5 22h14M5 2h14M7 2v4.2c0 .5.2 1 .6 1.4L12 12l4.4-4.4c.4-.4.6-.9.6-1.4V2M7 22v-4.2c0-.5.2-1 .6-1.4L12 12l4.4 4.4c.4.4.6.9.6 1.4V22"></path></svg><strong>اليوم</strong></div>
+        </div>
         <button class="dialog-close" data-close-dialog="editDialog" aria-label="إغلاق">×</button>
       </div>
       <form id="editForm" class="edit-form">
         <input type="hidden" id="editEntryId">
         <section class="edit-section edit-text-section">
           <div class="edit-text-wrap">
-            <button class="edit-text-toggle" id="editTextUnlockButton" type="button" aria-label="تعديل النص" title="تعديل النص" aria-pressed="false">✎</button>
+            <button class="edit-text-toggle" id="editTextUnlockButton" type="button" aria-label="تعديل النص" title="تعديل النص" aria-pressed="false"><svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M21.2 6.8a2.8 2.8 0 0 0-4-4L3.8 16.2a2 2 0 0 0-.5.8L2 21.4a.5.5 0 0 0 .6.6L7 20.7a2 2 0 0 0 .8-.5z"></path><path d="m15 5 4 4"></path></svg></button>
             <textarea class="field edit-text-field" id="editText" rows="3" dir="auto" maxlength="5000" readonly aria-label="نص الالتقاطة"></textarea>
           </div>
         </section>
         <section class="edit-section">
           <div class="edit-organize-grid">
             <div class="form-group">
-              <div class="edit-field-heading">
-                <label for="editPath">المسار</label>
-                <div class="edit-age-field" id="editEntryAge"><span aria-hidden="true">⏳</span><strong>اليوم</strong></div>
-              </div>
+              <label for="editPath">المسار</label>
               <select class="select-field" id="editPath"></select>
             </div>
             <div class="form-group edit-date-group">
@@ -1852,7 +2002,8 @@
             <span class="tiny-note" id="editPathAge">مدة المسار غير متاحة.</span>
             <label class="check-label edit-top-toggle">
               <input class="checkbox" id="editTopToday" type="checkbox">
-              ★ أهم اليوم
+              <svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="m12 3 2.8 5.7 6.2.9-4.5 4.4 1.1 6.2-5.6-3-5.6 3 1.1-6.2L3 9.6l6.2-.9z"></path></svg>
+              <span>أهم اليوم</span>
             </label>
           </div>
         </section>
