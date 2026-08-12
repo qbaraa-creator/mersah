@@ -538,6 +538,30 @@
     }
     .top-task-check .checkbox { margin: 0; }
 
+    /* ── سجل اليوم (مطوي) ── */
+
+    .today-log-summary {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: var(--space-2);
+      cursor: pointer;
+      list-style: none;
+      min-height: var(--tap);
+    }
+    .today-log-summary::-webkit-details-marker { display: none; }
+    .today-log-summary h2 { font-size: 24px; font-weight: 600; margin: 0; }
+    .today-log-meta { display: inline-flex; align-items: center; gap: 6px; }
+    .today-log-chevron::after {
+      content: '‹';
+      color: var(--color-accent-ink);
+      font-size: 20px;
+      line-height: 1;
+    }
+    .today-log[open] .today-log-chevron::after { content: '⌄'; }
+    .today-log > .card-list { margin-top: var(--space-3); }
+    .today-log > #loadMoreTodayButton { margin-top: var(--space-2); }
+
     /* ── العائد اليوم ── */
 
     .returned-today { display: grid; gap: 8px; }
@@ -2066,6 +2090,14 @@
           </button>
         </section>
 
+        <section class="panel top-priorities">
+          <div class="section-head">
+            <h2>أهم اليوم</h2>
+            <button class="top-add-button" id="openTopTaskDialog" type="button" aria-label="إضافة مهمة" title="إضافة مهمة">+</button>
+          </div>
+          <div class="top-list" id="topTasksList"></div>
+        </section>
+
         <section class="panel returned-today" id="returnedTodaySection" hidden>
           <div class="section-head">
             <h2>عاد اليوم</h2>
@@ -2074,13 +2106,17 @@
           <div class="return-list" id="returnedTodayList"></div>
         </section>
 
-        <section class="panel top-priorities">
-          <div class="section-head">
-            <h2>أهم اليوم</h2>
-            <button class="top-add-button" id="openTopTaskDialog" type="button" aria-label="إضافة مهمة" title="إضافة مهمة">+</button>
-          </div>
-          <div class="top-list" id="topTasksList"></div>
-        </section>
+        <details class="panel today-log" id="todayLogSection">
+          <summary class="today-log-summary">
+            <h2>سجل اليوم</h2>
+            <span class="today-log-meta">
+              <span class="count" id="todayLogCount">0</span>
+              <span class="today-log-chevron" aria-hidden="true"></span>
+            </span>
+          </summary>
+          <div class="card-list" id="todayTimeline"></div>
+          <button class="quiet-btn" id="loadMoreTodayButton" hidden>عرض إدخالات أقدم</button>
+        </details>
 
         <section class="panel">
           <button class="day-close-trigger" id="openEveningCloseButton" type="button">
@@ -2091,14 +2127,6 @@
             </span>
             <span class="day-close-chevron" aria-hidden="true">‹</span>
           </button>
-        </section>
-
-        <section class="panel stack">
-          <div class="section-head">
-            <h2>سجل اليوم</h2>
-          </div>
-          <div class="card-list" id="todayTimeline"></div>
-          <button class="quiet-btn" id="loadMoreTodayButton" hidden>عرض إدخالات أقدم</button>
         </section>
       </section>
 

@@ -198,6 +198,7 @@ const elements = {
   weeklyUndatedList: $('#weeklyUndatedList'),
   completeWeeklySessionButton: $('#completeWeeklySessionButton'),
   todayTimeline: $('#todayTimeline'),
+  todayLogCount: $('#todayLogCount'),
   loadMoreTodayButton: $('#loadMoreTodayButton'),
   openEveningCloseButton: $('#openEveningCloseButton'),
   eveningCloseButtonStatus: $('#eveningCloseButtonStatus'),
@@ -1746,6 +1747,7 @@ function createTopTaskElement(entry, dayKey) {
 
 function renderTodayTimeline(dayKey) {
   const list = entriesForDate(dayKey);
+  elements.todayLogCount.textContent = formatNumber(list.length);
   renderEntryList(elements.todayTimeline, list.slice(0, todayEntriesLimit), 'سجل اليوم فارغ. زر الالتقاط ينتظر أول سطر.');
   elements.loadMoreTodayButton.hidden = list.length <= todayEntriesLimit;
 }
