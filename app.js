@@ -83,11 +83,11 @@ const STATUSES = Object.freeze({
 });
 
 const RETURN_SCHEDULES = Object.freeze([
-  { key: 'tomorrow', label: 'غدًا', days: 1, path: 'do' },
-  { key: 'this-week', label: 'هذا الأسبوع', days: 3, path: 'do' },
-  { key: 'next-week', label: 'الأسبوع القادم', days: 7, path: 'consider' },
-  { key: 'month', label: 'بعد شهر', days: 30, path: 'consider' },
-  { key: 'session', label: 'الجلسة', days: null, path: 'consider' }
+  { key: 'tomorrow', label: 'غدًا', days: 1 },
+  { key: 'this-week', label: 'هذا الأسبوع', days: 3 },
+  { key: 'next-week', label: 'الأسبوع القادم', days: 7 },
+  { key: 'month', label: 'بعد شهر', days: 30 },
+  { key: 'session', label: 'الجلسة', days: null }
 ]);
 
 const ENTRY_EVENT_TYPES = new Set([
@@ -145,6 +145,9 @@ let activeDetailsEntryId = null;
 let activeShareEntryId = null;
 let observedDayKey = dateKey();
 let toastTimer;
+let captureReturnTimer;
+let activeReturnPicker = null;
+let visualViewportBaseHeight = window.visualViewport?.height || window.innerHeight;
 let selectedDirectionTimer;
 let entriesSearchTimer;
 let backupExportDue = false;
@@ -264,14 +267,22 @@ const elements = {
   editTextUnlockButton: $('#editTextUnlockButton'),
   editPath: $('#editPath'),
   editReturnDate: $('#editReturnDate'),
+  editReturnPickerButton: $('#editReturnPickerButton'),
+  editReturnSummary: $('#editReturnSummary'),
   editPathAge: $('#editPathAge'),
   editEntryAge: $('#editEntryAge'),
   editAttachmentsOptions: $('#editAttachmentsOptions'),
   editTopToday: $('#editTopToday'),
+  editTopTodayButton: $('#editTopTodayButton'),
   editExistingAttachments: $('#editExistingAttachments'),
   editAttachmentInput: $('#editAttachmentInput'),
   editNewPreview: $('#editNewPreview'),
   editDeleteButton: $('#editDeleteButton'),
+  returnPickerDialog: $('#returnPickerDialog'),
+  returnPickerCurrent: $('#returnPickerCurrent'),
+  returnPickerOptions: $('#returnPickerOptions'),
+  returnPickerCustomForm: $('#returnPickerCustomForm'),
+  returnPickerCustomDate: $('#returnPickerCustomDate'),
   attachmentViewerDialog: $('#attachmentViewerDialog'),
   attachmentViewerClose: $('#attachmentViewerClose'),
   attachmentViewerTitle: $('#attachmentViewerTitle'),
@@ -332,6 +343,9 @@ const elements = {
   viewTrashButton: $('#viewTrashButton'),
   restoreTrashButton: $('#restoreTrashButton'),
   emptyTrashButton: $('#emptyTrashButton'),
+  captureReturnBar: $('#captureReturnBar'),
+  captureReturnText: $('#captureReturnText'),
+  captureReturnChangeButton: $('#captureReturnChangeButton'),
   toast: $('#toast'),
   toastText: $('#toastText'),
   toastActions: $('#toastActions')
@@ -829,6 +843,15 @@ function relativeDayLabel(key) {
     return new Intl.RelativeTimeFormat('ar-u-nu-latn', { numeric: 'always' }).format(-difference, 'day');
   }
   return formatDateKey(target);
+}
+
+function returnDateSummary(key) {
+  const date = validDateKey(key);
+  if (!date) return 'غير محددة';
+  const distance = daysBetweenKeys(dateKey(), date);
+  const relative = relativeDayLabel(date);
+  const calendar = formatHeaderDayMonth(date);
+  return Math.abs(distance) <= 6 ? `${relative} · ${calendar}` : calendar;
 }
 
 function dayName(key) {
@@ -1627,7 +1650,6 @@ function renderEveningCloseDialog() {
 function openEveningCloseDialog() {
   renderEveningCloseDialog();
   elements.eveningCloseDialog.showModal();
-  setTimeout(() => elements.eveningTomorrowDirection.focus(), 80);
 }
 
 function renderTopProgress(top) {
@@ -3314,8 +3336,7 @@ async function scheduleEntryReturn(entryId, scheduleKey, { deferred = false } = 
   if (!current || !schedule) return null;
   const resolved = resolveReturnSchedule(schedule, entryId, dateKey(), { enforceCapacity: !deferred });
   const updated = await updateEntry(entryId, {
-    followUpDate: resolved.date,
-    path: resolved.path
+    followUpDate: resolved.date
   }, deferred ? {
     extraEvent: {
       type: 'return_deferred',
@@ -3325,8 +3346,97 @@ async function scheduleEntryReturn(entryId, scheduleKey, { deferred = false } = 
   if (!updated) return null;
   showToast(resolved.shifted
     ? `اليوم المختار ممتلئ؛ نُقلت العودة إلى جلسة ${formatDateKey(resolved.date)}.`
-    : `تعود الالتقاطة ${relativeDayLabel(resolved.date)} في «${PATHS[resolved.path]}».`);
+    : `تعود الالتقاطة ${returnDateSummary(resolved.date)}.`);
   return updated;
+}
+
+function hideCaptureReturnConfirmation() {
+  clearTimeout(captureReturnTimer);
+  elements.captureReturnBar.hidden = true;
+}
+
+function showCaptureReturnConfirmation(entry, duration = 10_000) {
+  clearTimeout(captureReturnTimer);
+  elements.captureReturnText.textContent = `حُفظت · تعود ${returnDateSummary(entry.followUpDate)}`;
+  elements.captureReturnChangeButton.dataset.entryId = entry.id;
+  elements.captureReturnBar.hidden = false;
+  captureReturnTimer = setTimeout(() => {
+    elements.captureReturnBar.hidden = true;
+  }, duration);
+}
+
+function updateEditReturnSummary() {
+  elements.editReturnSummary.textContent = returnDateSummary(elements.editReturnDate.value);
+}
+
+function setEditTopTodayState(selected) {
+  elements.editTopToday.checked = selected;
+  elements.editTopTodayButton.setAttribute('aria-pressed', String(selected));
+  elements.editTopTodayButton.title = selected ? 'إزالة من أهم اليوم' : 'إضافة إلى أهم اليوم';
+  elements.editTopTodayButton.setAttribute('aria-label', elements.editTopTodayButton.title);
+}
+
+function renderReturnPicker() {
+  const context = activeReturnPicker;
+  if (!context) return;
+  const selectedDate = validDateKey(context.selectedDate);
+  const currentStrong = document.createElement('strong');
+  currentStrong.textContent = returnDateSummary(selectedDate);
+  elements.returnPickerCurrent.replaceChildren(document.createTextNode('العودة الحالية: '), currentStrong);
+  const schedules = resolvedReturnSchedules(context.entryId, dateKey(), { enforceCapacity: false });
+  const buttons = schedules.map(schedule => {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'return-picker-option';
+    button.setAttribute('aria-pressed', String(schedule.date === selectedDate));
+    const label = document.createElement('strong');
+    label.textContent = schedule.label;
+    const date = document.createElement('span');
+    date.textContent = formatHeaderDayMonth(schedule.date);
+    button.append(label, date);
+    button.addEventListener('click', () => applyReturnPickerDate(schedule.date));
+    return button;
+  });
+  elements.returnPickerOptions.replaceChildren(...buttons);
+  elements.returnPickerCustomDate.min = dateKey();
+  elements.returnPickerCustomDate.value = selectedDate && selectedDate >= dateKey()
+    ? selectedDate
+    : shiftDateKey(dateKey(), 1);
+}
+
+function openReturnPicker(context) {
+  activeReturnPicker = {
+    mode: context.mode,
+    entryId: context.entryId || null,
+    selectedDate: validDateKey(context.selectedDate)
+  };
+  hideCaptureReturnConfirmation();
+  renderReturnPicker();
+  elements.returnPickerDialog.showModal();
+}
+
+async function applyReturnPickerDate(value) {
+  const date = validDateKey(value);
+  const context = activeReturnPicker;
+  if (!date || !context) return;
+  if (context.mode === 'edit') {
+    elements.editReturnDate.value = date;
+    updateEditReturnSummary();
+    elements.returnPickerDialog.close();
+    return;
+  }
+  const entry = entries.find(item => item.id === context.entryId);
+  if (!entry) {
+    elements.returnPickerDialog.close();
+    return;
+  }
+  try {
+    const updated = await updateEntry(entry.id, { followUpDate: date });
+    elements.returnPickerDialog.close();
+    if (updated) showCaptureReturnConfirmation(updated, 4_500);
+  } catch (error) {
+    reportStorageFailure(error, 'تغيير تاريخ العودة');
+  }
 }
 
 // ورقة تأكيد سفلية تتّسق مع الواجهة،
@@ -3552,6 +3662,7 @@ async function handleEveningCloseSubmit(event) {
 }
 
 function openCaptureDialog() {
+  hideCaptureReturnConfirmation();
   resetCaptureForm();
   elements.captureDialog.showModal();
   setTimeout(() => elements.captureText.focus(), 80);
@@ -3611,7 +3722,7 @@ async function handleCaptureSubmit(event) {
   elements.captureStatus.textContent = '';
   elements.captureStatus.hidden = true;
   elements.captureDialog.close();
-  showReturnChoices(entry);
+  showCaptureReturnConfirmation(entry);
 }
 
 async function deleteEntryCompletely(entryId) {
@@ -3800,10 +3911,12 @@ async function removeEditNewAttachment(id) {
 function openEditDialog(entryId) {
   const entry = entries.find(item => item.id === entryId);
   if (!entry) return;
+  hideCaptureReturnConfirmation();
   editNewAttachments = [];
   editRemovedAttachmentIds = new Set();
   elements.editEntryId.value = entry.id;
   elements.editText.value = entry.text || '';
+  resizeEditTextField();
   setEditTextUnlocked(false);
   const editPathOptions = entry.path === 'untriaged'
     ? { untriaged: 'اختر مسارًا', ...ROUTABLE_PATH_OPTIONS }
@@ -3811,14 +3924,21 @@ function openEditDialog(entryId) {
   fillSelect(elements.editPath, editPathOptions);
   elements.editPath.value = hasOwn(editPathOptions, entry.path) ? entry.path : 'untriaged';
   elements.editReturnDate.value = validDateKey(entry.followUpDate) || '';
+  updateEditReturnSummary();
   updateEditPathAgeHint(entry);
   elements.editEntryAge.querySelector('strong').textContent = ageDaysLabel(entryAgeDays(entry));
-  elements.editTopToday.checked = entry.topTodayDate === dateKey();
+  setEditTopTodayState(entry.topTodayDate === dateKey());
   elements.editAttachmentsOptions.open = !entry.text && attachmentsFor(entry.id).length > 0;
   renderExistingAttachments(entry.id);
   renderAttachmentPreview(elements.editNewPreview, editNewAttachments, removeEditNewAttachment);
   elements.editDialog.showModal();
   setTimeout(() => elements.editTextUnlockButton.focus(), 80);
+}
+
+function resizeEditTextField() {
+  elements.editText.style.height = 'auto';
+  const minimum = elements.editText.readOnly ? 64 : 104;
+  elements.editText.style.height = `${Math.min(156, Math.max(minimum, elements.editText.scrollHeight))}px`;
 }
 
 function setEditTextUnlocked(unlocked, { focus = false } = {}) {
@@ -3830,6 +3950,7 @@ function setEditTextUnlocked(unlocked, { focus = false } = {}) {
   elements.editTextUnlockButton.setAttribute('aria-pressed', String(unlocked));
   elements.editTextUnlockButton.setAttribute('aria-label', unlocked ? 'إنهاء تعديل النص' : 'تعديل النص');
   elements.editTextUnlockButton.title = unlocked ? 'إنهاء تعديل النص' : 'تعديل النص';
+  resizeEditTextField();
   if (unlocked && focus) setTimeout(() => elements.editText.focus(), 40);
 }
 
@@ -3837,16 +3958,17 @@ function updateEditPathAgeHint(entry) {
   if (!entry) return;
   if (elements.editPath.value === 'untriaged') {
     elements.editPathAge.textContent = 'لم يُختر مسار بعد';
+    elements.editPathAge.hidden = false;
     return;
   }
   if (elements.editPath.value !== entry.path) {
     elements.editPathAge.textContent = 'المسار الجديد يبدأ عند الحفظ';
+    elements.editPathAge.hidden = false;
     return;
   }
   const age = currentPathAgeDays(entry);
-  elements.editPathAge.textContent = age == null
-    ? 'مدة المسار غير متاحة'
-    : `في المسار منذ ${ageDaysLabel(age)}`;
+  elements.editPathAge.hidden = age == null;
+  elements.editPathAge.textContent = age == null ? '' : `في المسار منذ ${ageDaysLabel(age)}`;
 }
 
 function renderExistingAttachments(entryId) {
@@ -5479,6 +5601,7 @@ function showOnlyView(name) {
 
 function switchView(name) {
   const changed = currentView !== name;
+  if (changed) hideCaptureReturnConfirmation();
   if (changed) viewScrollPositions.set(currentView, window.scrollY);
   currentView = name;
   showOnlyView(name);
@@ -5513,20 +5636,30 @@ function showToast(message, actionLabel = '', action = null, duration = 3500) {
   showToastActions(message, actionLabel && action ? [{ label: actionLabel, action }] : [], duration);
 }
 
-function showReturnChoices(entry) {
-  const tomorrow = shiftDateKey(dateKey(), 1);
-  const shiftedDefault = entry.followUpDate !== tomorrow;
-  const actions = resolvedReturnSchedules(entry.id).map(schedule => ({
-    label: schedule.shifted ? `${schedule.label} ← الجلسة` : schedule.label,
-    action: () => scheduleEntryReturn(entry.id, schedule.key)
-  }));
-  showToastActions(
-    shiftedDefault
-      ? `تم الحفظ في «للنظر». امتلأ الغد، فتعود في جلسة ${formatDateKey(entry.followUpDate)}.`
-      : 'تم الحفظ في «للنظر». تاريخ العودة الافتراضي غدًا.',
-    actions,
-    12_000
-  );
+function editableKeyboardTarget(node) {
+  if (!(node instanceof HTMLElement)) return false;
+  if (node instanceof HTMLTextAreaElement || node instanceof HTMLSelectElement) return !node.disabled && !node.readOnly;
+  if (!(node instanceof HTMLInputElement) || node.disabled || node.readOnly) return false;
+  return !['button', 'checkbox', 'radio', 'range', 'file', 'hidden', 'submit'].includes(node.type);
+}
+
+function syncVisualViewport() {
+  const viewport = window.visualViewport;
+  const viewportHeight = viewport?.height || window.innerHeight;
+  const active = document.activeElement;
+  const hasEditableFocus = editableKeyboardTarget(active);
+  if (!hasEditableFocus && viewportHeight > visualViewportBaseHeight - 80) {
+    visualViewportBaseHeight = Math.max(visualViewportBaseHeight, viewportHeight);
+  }
+  const viewportDrop = Math.max(0, visualViewportBaseHeight - viewportHeight);
+  const keyboardInset = Math.max(0, window.innerHeight - viewportHeight - (viewport?.offsetTop || 0));
+  const keyboardOpen = hasEditableFocus && viewportDrop > 80;
+  document.documentElement.style.setProperty('--visual-viewport-height', `${Math.max(240, viewportHeight)}px`);
+  document.documentElement.style.setProperty('--keyboard-inset', `${keyboardOpen ? keyboardInset : 0}px`);
+  document.body.classList.toggle('keyboard-open', keyboardOpen);
+  if (keyboardOpen && active instanceof HTMLElement && active.closest('dialog[open]')) {
+    requestAnimationFrame(() => active.scrollIntoView({ block: 'center', inline: 'nearest', behavior: 'auto' }));
+  }
 }
 
 async function openSettingsDialog() {
@@ -5614,8 +5747,34 @@ function bindEvents() {
   elements.editTextUnlockButton.addEventListener('click', () => {
     setEditTextUnlocked(elements.editText.readOnly, { focus: elements.editText.readOnly });
   });
+  elements.editText.addEventListener('input', resizeEditTextField);
   elements.editPath.addEventListener('change', () => {
     updateEditPathAgeHint(entries.find(entry => entry.id === elements.editEntryId.value));
+  });
+  elements.editReturnPickerButton.addEventListener('click', () => {
+    openReturnPicker({
+      mode: 'edit',
+      entryId: elements.editEntryId.value,
+      selectedDate: elements.editReturnDate.value
+    });
+  });
+  elements.editTopTodayButton.addEventListener('click', () => {
+    setEditTopTodayState(!elements.editTopToday.checked);
+  });
+  elements.returnPickerCustomForm.addEventListener('submit', event => {
+    event.preventDefault();
+    applyReturnPickerDate(elements.returnPickerCustomDate.value);
+  });
+  elements.returnPickerDialog.addEventListener('close', () => {
+    activeReturnPicker = null;
+  });
+  elements.captureReturnChangeButton.addEventListener('click', () => {
+    const entry = entries.find(item => item.id === elements.captureReturnChangeButton.dataset.entryId);
+    if (!entry) {
+      hideCaptureReturnConfirmation();
+      return;
+    }
+    openReturnPicker({ mode: 'entry', entryId: entry.id, selectedDate: entry.followUpDate });
   });
   elements.editAttachmentInput.addEventListener('change', async () => {
     await handleAttachmentFiles(elements.editAttachmentInput.files, editNewAttachments);
@@ -5667,7 +5826,8 @@ function bindEvents() {
   $$('[data-close-dialog]').forEach(button => button.addEventListener('click', () => {
     document.getElementById(button.dataset.closeDialog)?.close();
   }));
-  [elements.topTaskDialog, elements.captureDialog, elements.directionDialog, elements.eveningCloseDialog, elements.weeklySessionDialog, elements.editDialog,
+  [elements.topTaskDialog, elements.captureDialog, elements.directionDialog, elements.eveningCloseDialog, elements.returnPickerDialog,
+    elements.weeklySessionDialog, elements.editDialog,
     elements.entryDetailsDialog, elements.entryShareDialog, elements.fileViewerDialog, elements.trashDialog, elements.settingsDialog].forEach(dialog => {
     dialog.addEventListener('click', event => {
       if (event.target === dialog) dialog.close();
@@ -5691,6 +5851,15 @@ function bindEvents() {
   });
   window.addEventListener('scroll', queueAttachmentImageFallbackCheck, { passive: true, capture: true });
   window.addEventListener('resize', queueAttachmentImageFallbackCheck, { passive: true });
+  window.addEventListener('resize', syncVisualViewport, { passive: true });
+  window.visualViewport?.addEventListener('resize', syncVisualViewport, { passive: true });
+  window.visualViewport?.addEventListener('scroll', syncVisualViewport, { passive: true });
+  document.addEventListener('focusin', () => setTimeout(syncVisualViewport, 40));
+  document.addEventListener('focusout', () => setTimeout(syncVisualViewport, 80));
+  window.addEventListener('orientationchange', () => {
+    visualViewportBaseHeight = window.visualViewport?.height || window.innerHeight;
+    setTimeout(syncVisualViewport, 120);
+  });
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'visible') queueAttachmentImageFallbackCheck();
   });
@@ -5700,6 +5869,7 @@ function bindEvents() {
     if (attachmentImageFallbackFrame) cancelAnimationFrame(attachmentImageFallbackFrame);
     if (activeViewerTemporaryUrl) URL.revokeObjectURL(activeViewerTemporaryUrl);
   });
+  syncVisualViewport();
 }
 
 async function runExport(task, failureMessage) {

@@ -123,6 +123,8 @@
       --tap: 44px;
       --safe-top: env(safe-area-inset-top, 0px);
       --safe-bottom: env(safe-area-inset-bottom, 0px);
+      --visual-viewport-height: 100dvh;
+      --keyboard-inset: 0px;
     }
 
     :root[data-theme="dark"] {
@@ -195,6 +197,15 @@
       font-variant-numeric: lining-nums;
       -webkit-font-smoothing: antialiased;
       text-rendering: optimizeLegibility;
+    }
+    body::before {
+      content: '';
+      position: fixed;
+      z-index: 29;
+      inset: 0 0 auto;
+      height: var(--safe-top);
+      background: var(--color-bg);
+      pointer-events: none;
     }
 
     h1, h2, h3 {
@@ -1435,7 +1446,7 @@
     }
     dialog::backdrop { background: color-mix(in srgb, #2d2b2b 50%, transparent); }
     dialog.capture-sheet, dialog.edit-sheet, dialog.confirm-sheet, dialog.top-task-dialog,
-    dialog.evening-close-sheet, dialog.weekly-session-sheet,
+    dialog.evening-close-sheet, dialog.weekly-session-sheet, dialog.return-picker-sheet,
     dialog.entry-details-sheet, dialog.entry-share-sheet, dialog.trash-sheet {
       width: 100%; max-width: 100%;
       margin: 0 0 0 auto;
@@ -1445,6 +1456,7 @@
     }
     dialog.capture-sheet .dialog-inner, dialog.edit-sheet .dialog-inner, dialog.confirm-sheet .dialog-inner,
     dialog.evening-close-sheet .dialog-inner, dialog.weekly-session-sheet .dialog-inner,
+    dialog.return-picker-sheet .dialog-inner,
     dialog.top-task-dialog .dialog-inner, dialog.entry-details-sheet .dialog-inner,
     dialog.entry-share-sheet .dialog-inner, dialog.trash-sheet .dialog-inner {
       padding: 18px 18px calc(18px + var(--safe-bottom));
@@ -1467,6 +1479,38 @@
     .dialog-actions {
       display: flex; justify-content: space-between;
       gap: var(--space-2); flex-wrap: wrap; margin-top: var(--space-3);
+    }
+    body.keyboard-open dialog.capture-sheet[open],
+    body.keyboard-open dialog.edit-sheet[open],
+    body.keyboard-open dialog.evening-close-sheet[open],
+    body.keyboard-open dialog.return-picker-sheet[open] {
+      inset-block-end: var(--keyboard-inset);
+      max-height: calc(var(--visual-viewport-height) - var(--safe-top) - 4px);
+    }
+    body.keyboard-open dialog.capture-sheet[open] .dialog-inner,
+    body.keyboard-open dialog.edit-sheet[open] .dialog-inner,
+    body.keyboard-open dialog.evening-close-sheet[open] .dialog-inner,
+    body.keyboard-open dialog.return-picker-sheet[open] .dialog-inner {
+      max-height: calc(var(--visual-viewport-height) - var(--safe-top) - 4px);
+    }
+    .capture-sheet form > .dialog-actions,
+    .direction-field + .dialog-actions,
+    .evening-close-sheet form > .dialog-actions {
+      position: sticky;
+      z-index: 2;
+      bottom: calc(-18px - var(--safe-bottom));
+      padding: 10px 0 calc(14px + var(--safe-bottom));
+      background: var(--color-bg);
+      border-block-start: 1px solid var(--color-divider);
+    }
+    body.keyboard-open .evening-close-sheet[open] .evening-summary,
+    body.keyboard-open .evening-close-sheet[open] .evening-open-wrap,
+    body.keyboard-open .evening-close-sheet[open] .evening-closed-status {
+      display: none;
+    }
+    body.keyboard-open .edit-sheet[open] .edit-sheet-actions {
+      bottom: 0;
+      padding-bottom: 8px;
     }
     .edit-sheet .dialog-head { margin-bottom: 4px; }
     .edit-sheet .dialog-head h2 { font-size: 20px; }
@@ -1515,12 +1559,14 @@
     }
     .edit-text-wrap { position: relative; }
     textarea.edit-text-field {
-      min-height: 104px;
+      min-height: 64px;
+      max-height: 156px;
       padding: 10px 13px 10px 60px;
       font-size: 17px;
       font-weight: 600;
       line-height: 1.65;
-      resize: vertical;
+      resize: none;
+      overflow-y: auto;
     }
     textarea.edit-text-field[readonly] {
       border-color: var(--color-hairline);
@@ -1528,6 +1574,7 @@
       cursor: default;
     }
     textarea.edit-text-field.is-unlocked { border-color: var(--color-accent-ink); }
+    textarea.edit-text-field.is-unlocked { min-height: 104px; }
     .edit-age-field {
       display: inline-flex;
       align-items: center;
@@ -1551,15 +1598,52 @@
     }
     .edit-routing-grid {
       display: grid;
-      grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+      grid-template-columns: minmax(0, 1fr);
       gap: 8px;
       align-items: start;
     }
-    .edit-return-field { direction: ltr; text-align: left; font-variant-numeric: tabular-nums; }
-    .edit-top-toggle {
-      flex: none;
+    .edit-routing-grid > * { min-width: 0; }
+    .edit-return-trigger {
+      all: unset;
+      box-sizing: border-box;
+      width: 100%;
       min-height: var(--tap);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      padding: 8px 12px;
+      border: 1px solid var(--color-divider);
+      border-radius: var(--radius-md);
+      background: var(--color-surface);
+      cursor: pointer;
+    }
+    .edit-return-trigger-copy { display: grid; gap: 1px; min-width: 0; }
+    .edit-return-trigger-copy small { color: var(--color-muted); font-size: 13px; }
+    .edit-return-trigger-copy strong {
+      overflow: hidden;
+      font-size: 16px;
+      font-weight: 600;
+      text-overflow: ellipsis;
       white-space: nowrap;
+    }
+    .edit-top-button {
+      all: unset;
+      box-sizing: border-box;
+      min-height: var(--tap);
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      padding: 7px 10px;
+      border: 1px solid transparent;
+      border-radius: var(--radius-md);
+      color: var(--color-muted);
+      cursor: pointer;
+    }
+    .edit-top-button[aria-pressed="true"] {
+      border-color: var(--color-accent-ink);
+      background: var(--color-accent-soft);
+      color: var(--color-accent-ink);
     }
     .edit-sheet .edit-attachments {
       border-radius: 0;
@@ -1580,6 +1664,89 @@
       border-block-start: 1px solid var(--color-divider);
     }
     .edit-sheet-actions > button { flex: 1; }
+    .edit-sheet-actions .edit-delete-action {
+      flex: 0 0 var(--tap);
+      width: var(--tap);
+      padding: 0;
+      display: grid;
+      place-items: center;
+    }
+
+    .return-picker-current {
+      margin: 0;
+      padding: 9px 12px;
+      color: var(--color-muted);
+      background: var(--color-surface);
+      border-inline-start: 3px solid var(--color-accent-ink);
+      font-size: 14px;
+    }
+    .return-picker-current strong { color: var(--color-text); font-weight: 600; }
+    .return-picker-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 8px;
+      margin-block: 12px;
+    }
+    .return-picker-option {
+      min-width: 0;
+      min-height: 62px;
+      display: grid;
+      align-content: center;
+      gap: 2px;
+      padding: 8px 10px;
+      border: 1px solid var(--color-divider);
+      border-radius: var(--radius-md);
+      background: var(--color-surface);
+      color: var(--color-text);
+      text-align: start;
+    }
+    .return-picker-option strong { font-size: 16px; font-weight: 600; }
+    .return-picker-option span { color: var(--color-muted); font-size: 13px; }
+    .return-picker-option[aria-pressed="true"] {
+      border-color: var(--color-accent-ink);
+      background: var(--color-accent-soft);
+    }
+    .return-picker-custom {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      align-items: end;
+      gap: 8px;
+      padding-block-start: 12px;
+      border-block-start: 1px solid var(--color-divider);
+    }
+    .return-picker-custom > .form-group { min-width: 0; }
+    .return-picker-custom input { min-width: 0; }
+
+    .capture-return-bar {
+      position: fixed;
+      z-index: 55;
+      inset-inline: 12px;
+      bottom: calc(78px + var(--safe-bottom));
+      width: min(520px, calc(100% - 24px));
+      min-height: 52px;
+      margin-inline: auto;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      padding: 7px 9px 7px 13px;
+      border: 1px solid var(--color-divider);
+      border-radius: var(--radius-md);
+      background: var(--toast-bg);
+      color: var(--toast-text);
+      box-shadow: var(--shadow-lg);
+    }
+    .capture-return-bar span { min-width: 0; font-size: 14px; line-height: 1.45; }
+    .capture-return-bar button {
+      flex: none;
+      min-height: var(--tap);
+      padding: 6px 12px;
+      border: 1px solid color-mix(in srgb, var(--toast-text) 34%, transparent);
+      border-radius: var(--radius-sm);
+      background: transparent;
+      color: inherit;
+      font-weight: 600;
+    }
 
     .entry-details-text {
       margin: 0;
@@ -2181,18 +2348,22 @@
               <label for="editPath">المسار</label>
               <select class="select-field" id="editPath"></select>
             </div>
-            <div class="form-group">
-              <label for="editReturnDate">تاريخ العودة</label>
-              <input class="field edit-return-field" id="editReturnDate" type="date" lang="en-GB" dir="ltr">
-            </div>
+            <input id="editReturnDate" type="hidden">
+            <button class="edit-return-trigger" id="editReturnPickerButton" type="button" aria-label="تغيير تاريخ العودة">
+              <span class="edit-return-trigger-copy">
+                <small>العودة</small>
+                <strong id="editReturnSummary">غير محددة</strong>
+              </span>
+              <span aria-hidden="true">‹</span>
+            </button>
           </div>
           <div class="edit-compact-row">
-            <span class="tiny-note" id="editPathAge">مدة المسار غير متاحة.</span>
-            <label class="check-label edit-top-toggle">
-              <input class="checkbox" id="editTopToday" type="checkbox">
+            <span class="tiny-note" id="editPathAge" hidden></span>
+            <input id="editTopToday" type="checkbox" hidden>
+            <button class="edit-top-button" id="editTopTodayButton" type="button" aria-pressed="false">
               <svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="m12 3 2.8 5.7 6.2.9-4.5 4.4 1.1 6.2-5.6-3-5.6 3 1.1-6.2L3 9.6l6.2-.9z"></path></svg>
               <span>أهم اليوم</span>
-            </label>
+            </button>
           </div>
         </section>
         <section class="edit-section">
@@ -2209,9 +2380,27 @@
           </details>
         </section>
         <div class="dialog-actions edit-sheet-actions">
-          <button type="button" class="danger-btn" id="editDeleteButton">حذف</button>
+          <button type="button" class="danger-btn edit-delete-action" id="editDeleteButton" aria-label="حذف الالتقاطة" title="حذف الالتقاطة"><svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M4 7h16M9 7V4h6v3M6 7l1 14h10l1-14M10 11v6M14 11v6"></path></svg></button>
           <button type="submit" class="primary-btn">حفظ التعديل</button>
         </div>
+      </form>
+    </div>
+  </dialog>
+
+  <dialog class="return-picker-sheet" id="returnPickerDialog">
+    <div class="dialog-inner">
+      <div class="dialog-head">
+        <h2>تاريخ العودة</h2>
+        <button class="dialog-close" data-close-dialog="returnPickerDialog" aria-label="إغلاق">×</button>
+      </div>
+      <p class="return-picker-current" id="returnPickerCurrent">العودة الحالية: <strong>غير محددة</strong></p>
+      <div class="return-picker-grid" id="returnPickerOptions" role="group" aria-label="اختيارات العودة السريعة"></div>
+      <form class="return-picker-custom" id="returnPickerCustomForm">
+        <div class="form-group">
+          <label for="returnPickerCustomDate">تاريخ آخر</label>
+          <input class="field" id="returnPickerCustomDate" type="date" lang="ar-SA-u-nu-latn" dir="ltr" required>
+        </div>
+        <button class="secondary-btn" type="submit">اختيار</button>
       </form>
     </div>
   </dialog>
@@ -2442,6 +2631,11 @@
       </div>
     </div>
   </dialog>
+
+  <div class="capture-return-bar" id="captureReturnBar" role="region" aria-label="تاريخ عودة الالتقاطة" hidden>
+    <span id="captureReturnText" role="status" aria-live="polite"></span>
+    <button id="captureReturnChangeButton" type="button">تغيير</button>
+  </div>
 
   <div class="toast" id="toast" role="status" aria-live="polite">
     <span id="toastText"></span>
