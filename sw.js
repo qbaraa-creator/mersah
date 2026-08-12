@@ -1,10 +1,11 @@
-// مرساة — Service Worker
+// مرساة — Service Worker v91-r6 (اتساق ألوان التثبيت والثيم)
 //
 // مهم عند النشر: ارفع رقم النسخة في CACHE_NAME عند أي تعديل على
-// index.html أو app.js أو الأيقونات. هذا هو المُشغّل الوحيد للتحديث؛
+// index.html أو app.js أو manifest.webmanifest أو الأيقونات والخطوط.
+// هذا هو المُشغّل الوحيد للتحديث؛
 // بدونه يبقى المتصفح يخدم النسخة المخزّنة.
 const CACHE_PREFIX = 'mersah-static-';
-const CACHE_NAME = `${CACHE_PREFIX}v77`;
+const CACHE_NAME = `${CACHE_PREFIX}v91-r6`;
 const SHELL_DOCUMENT = './index.html';
 const CORE_SHELL = [
   './',

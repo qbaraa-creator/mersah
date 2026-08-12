@@ -2,7 +2,7 @@
 <html lang="ar" dir="rtl">
 <head>
   <meta charset="utf-8">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; base-uri 'none'; object-src 'none'; form-action 'none'; connect-src 'self'; img-src 'self' data: blob:; font-src 'self'; media-src 'none'; frame-src 'none'; manifest-src 'self'; worker-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; base-uri 'none'; object-src 'none'; form-action 'none'; connect-src 'self'; img-src 'self' data: blob:; font-src 'self'; media-src 'self' blob:; frame-src 'none'; manifest-src 'self'; worker-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'">
   <meta name="referrer" content="no-referrer">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="theme-color" id="themeColor" content="#f3f2f2">
@@ -392,13 +392,28 @@
     }
     .direction-compass .ui-icon { width: 24px; height: 24px; }
     .direction-summary-value {
+      display: -webkit-box;
+      -webkit-box-orient: vertical;
+      -webkit-line-clamp: 3;
+      line-clamp: 3;
       font-size: 17px; font-weight: 600;
       line-height: 1.65;
       white-space: pre-wrap;
+      overflow: hidden;
       overflow-wrap: anywhere;
       flex: 1; min-width: 0;
     }
+    .direction-summary-value[hidden] { display: none; }
     .direction-field { min-height: 76px; resize: none; }
+
+    .form-status {
+      margin: 0;
+      color: var(--color-danger);
+      font-size: 14px;
+      line-height: 1.65;
+    }
+    .form-status.is-pending { color: var(--color-muted); }
+    .form-status[hidden] { display: none; }
 
     /* ── الأزرار ── */
 
@@ -511,6 +526,118 @@
       cursor: pointer;
     }
     .top-task-check .checkbox { margin: 0; }
+
+    /* ── العائد اليوم ── */
+
+    .returned-today { display: grid; gap: 8px; }
+    .returned-today[hidden] { display: none; }
+    .return-list { display: grid; gap: 8px; }
+    .return-card {
+      display: grid;
+      gap: 8px;
+      padding: 10px 12px;
+      border-inline-start: 4px solid var(--path-color, var(--color-accent));
+      border-radius: var(--radius-md);
+      background: var(--color-surface);
+    }
+    .return-card-head {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      align-items: start;
+      gap: 8px;
+    }
+    .return-card-text {
+      all: unset;
+      box-sizing: border-box;
+      min-width: 0;
+      min-height: var(--tap);
+      display: flex;
+      align-items: center;
+      cursor: pointer;
+      font-size: 17px;
+      font-weight: 600;
+      line-height: 1.65;
+      white-space: pre-wrap;
+      overflow-wrap: anywhere;
+    }
+    .return-card-meta {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 5px;
+      color: var(--color-muted);
+      font-size: 13px;
+    }
+    .return-overdue { color: var(--color-danger); font-weight: 600; }
+    .return-actions {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 4px;
+      padding-top: 7px;
+      border-top: 1px solid var(--color-hairline);
+    }
+    .return-action, .return-defer-menu > summary {
+      min-width: 0;
+      min-height: var(--tap);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 4px;
+      padding: 6px 4px;
+      border: 0;
+      border-radius: var(--radius-sm);
+      background: transparent;
+      color: var(--color-muted);
+      cursor: pointer;
+      font: inherit;
+      font-size: 13px;
+      font-weight: 600;
+      white-space: nowrap;
+    }
+    .return-action:active, .return-defer-menu > summary:active {
+      background: color-mix(in srgb, var(--color-text) 7%, transparent);
+    }
+    .return-action.primary, .return-action.top { color: var(--color-accent-ink); }
+    .return-action .ui-icon { width: 19px; height: 19px; }
+    .return-defer-menu { position: relative; min-width: 0; }
+    .return-defer-menu > summary { list-style: none; }
+    .return-defer-menu > summary::-webkit-details-marker { display: none; }
+    .return-date-options {
+      position: absolute;
+      z-index: 24;
+      inset-inline-start: 0;
+      inset-block-start: calc(100% + 4px);
+      width: min(250px, calc(100vw - 56px));
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 4px;
+      padding: 6px;
+      border: 1px solid var(--color-divider);
+      border-radius: var(--radius-md);
+      background: var(--color-bg);
+      box-shadow: var(--shadow-lg);
+    }
+    .return-date-option {
+      min-height: var(--tap);
+      padding: 7px 8px;
+      border: 0;
+      border-radius: var(--radius-sm);
+      background: var(--color-surface);
+      color: var(--color-text);
+      font: inherit;
+      font-size: 13px;
+      font-weight: 600;
+      text-align: start;
+    }
+    .return-date-option:last-child:nth-child(odd) { grid-column: 1 / -1; }
+
+    .weekly-session-trigger[hidden] { display: none; }
+    .weekly-session-sheet .dialog-inner { padding-bottom: calc(16px + var(--safe-bottom)); }
+    .weekly-session-intro { margin: -4px 0 8px; }
+    .weekly-session-sections { display: grid; gap: 14px; }
+    .weekly-session-group { display: grid; gap: 7px; }
+    .weekly-session-group[hidden] { display: none; }
+    .weekly-session-group h3 { margin: 0; font-size: 17px; font-weight: 600; }
 
     /* ── إغلاق اليوم ── */
 
@@ -674,7 +801,7 @@
     }
     .chip.path-untriaged, .chip.path-do, .chip.path-consider,
     .chip.path-waiting {
-      background: color-mix(in srgb, var(--path-color) 20%, transparent);
+      background: color-mix(in srgb, var(--path-color) 6%, transparent);
       color: var(--path-color);
     }
     .chip.age-chip { gap: 5px; background: none; padding-inline: 0; color: var(--color-muted); }
@@ -833,7 +960,7 @@
     }
     .path-backlog-meta { color: var(--color-muted); text-align: end; white-space: nowrap; }
 
-    .capture-heatmap { padding-block: 4px 10px; }
+    .capture-heatmap { padding: 4px 4px 10px; }
     .decision-window-copy {
       margin: 0;
       padding: 4px 0 12px;
@@ -867,7 +994,7 @@
     .heatmap-axis .hour-6 { grid-column: 8; }
     .heatmap-axis .hour-12 { grid-column: 14; }
     .heatmap-axis .hour-18 { grid-column: 20; }
-    .heatmap-axis .hour-23 { grid-column: 25; }
+    .heatmap-axis .hour-23 { grid-column: 25; text-align: end; }
 
     .segmented { display: flex; flex-wrap: wrap; gap: 6px; }
     .segment-btn {
@@ -1065,10 +1192,19 @@
       all: unset;
       box-sizing: border-box;
       width: 100%; height: 100%;
-      display: block;
+      position: relative; display: block;
       cursor: zoom-in;
     }
     .attachment-open img { width: 100%; height: 100%; display: block; object-fit: cover; }
+    .attachment-retry {
+      position: absolute; inset: 0;
+      display: grid; place-items: center;
+      background: var(--color-neutral-100);
+      color: var(--color-accent-ink);
+      cursor: pointer;
+    }
+    .attachment-retry[hidden] { display: none; }
+    .attachment-retry .ui-icon { width: 28px; height: 28px; }
     .attachment-file {
       grid-column: 1 / -1;
       min-height: 58px;
@@ -1102,7 +1238,14 @@
       text-overflow: ellipsis;
       white-space: nowrap;
     }
-    .attachment-file-size { display: block; margin-block-start: 2px; color: var(--color-muted); font-size: 13px; }
+    .attachment-file-size {
+      display: block;
+      margin-block-start: 2px;
+      color: var(--color-muted);
+      font-size: 13px;
+      direction: ltr;
+      unicode-bidi: isolate;
+    }
     .attachment-file-action { color: var(--color-accent-ink); font-size: 20px; }
     .attachment-remove {
       position: absolute;
@@ -1292,8 +1435,8 @@
     }
     dialog::backdrop { background: color-mix(in srgb, #2d2b2b 50%, transparent); }
     dialog.capture-sheet, dialog.edit-sheet, dialog.confirm-sheet, dialog.top-task-dialog,
-    dialog.evening-close-sheet,
-    dialog.entry-details-sheet, dialog.trash-sheet {
+    dialog.evening-close-sheet, dialog.weekly-session-sheet,
+    dialog.entry-details-sheet, dialog.entry-share-sheet, dialog.trash-sheet {
       width: 100%; max-width: 100%;
       margin: 0 0 0 auto;
       inset-block-end: 0; inset-block-start: auto;
@@ -1301,9 +1444,9 @@
       border-radius: var(--radius-lg) var(--radius-lg) 0 0;
     }
     dialog.capture-sheet .dialog-inner, dialog.edit-sheet .dialog-inner, dialog.confirm-sheet .dialog-inner,
-    dialog.evening-close-sheet .dialog-inner,
+    dialog.evening-close-sheet .dialog-inner, dialog.weekly-session-sheet .dialog-inner,
     dialog.top-task-dialog .dialog-inner, dialog.entry-details-sheet .dialog-inner,
-    dialog.trash-sheet .dialog-inner {
+    dialog.entry-share-sheet .dialog-inner, dialog.trash-sheet .dialog-inner {
       padding: 18px 18px calc(18px + var(--safe-bottom));
     }
     dialog.edit-sheet .dialog-inner { padding: 14px 16px calc(14px + var(--safe-bottom)); }
@@ -1385,12 +1528,6 @@
       cursor: default;
     }
     textarea.edit-text-field.is-unlocked { border-color: var(--color-accent-ink); }
-    .edit-organize-grid {
-      display: grid;
-      grid-template-columns: minmax(0, 1fr) minmax(136px, .72fr);
-      align-items: end;
-      gap: 8px;
-    }
     .edit-age-field {
       display: inline-flex;
       align-items: center;
@@ -1400,8 +1537,6 @@
       white-space: nowrap;
     }
     .edit-age-field strong { color: var(--color-text); font-size: 13px; font-weight: 600; }
-    .edit-date-group { min-width: 0; }
-    .edit-date-group .field { width: 100%; min-width: 0; padding-inline: 8px; }
     .edit-compact-row {
       min-height: var(--tap);
       display: flex;
@@ -1414,6 +1549,13 @@
       font-size: 12px;
       line-height: 1.35;
     }
+    .edit-routing-grid {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+      gap: 8px;
+      align-items: start;
+    }
+    .edit-return-field { direction: ltr; text-align: left; font-variant-numeric: tabular-nums; }
     .edit-top-toggle {
       flex: none;
       min-height: var(--tap);
@@ -1498,6 +1640,21 @@
       font-size: 13px;
       font-variant-numeric: tabular-nums;
     }
+    .entry-share-preview {
+      margin: 0;
+      max-height: 132px;
+      overflow: auto;
+      padding: 10px 0;
+      border-block: 1px solid var(--color-divider);
+      font-size: 16px;
+      font-weight: 600;
+      line-height: 1.7;
+      white-space: pre-wrap;
+      overflow-wrap: anywhere;
+    }
+    .entry-share-actions { display: grid; gap: 8px; }
+    .entry-share-actions > button { width: 100%; min-height: 50px; }
+    .entry-share-note { margin: 0; }
     .trash-sheet .tiny-note { margin: -6px 0 2px; }
     .trash-list { display: grid; }
     .trash-entry {
@@ -1535,6 +1692,7 @@
     }
     .trash-entry-actions { display: flex; align-items: center; gap: 2px; }
     .options-body { display: grid; gap: 6px; padding: 0 12px 12px; }
+    details.options:not([open]) > .options-body { display: none; }
     details.options {
       border-radius: var(--radius-md);
       background: var(--color-surface);
@@ -1619,7 +1777,7 @@
       left: 16px; right: 16px;
       margin-inline: auto;
       width: min(560px, calc(100% - 32px));
-      display: flex; align-items: center; justify-content: space-between;
+      display: grid;
       gap: var(--space-2);
       padding: 10px 14px;
       border-radius: var(--radius-md);
@@ -1633,12 +1791,24 @@
       box-shadow: var(--shadow-lg);
     }
     .toast.visible { opacity: 1; transform: translateY(0); pointer-events: auto; }
+    .toast-actions {
+      display: flex;
+      gap: 4px;
+      overflow-x: auto;
+      scrollbar-width: none;
+    }
+    .toast-actions:empty { display: none; }
+    .toast-actions::-webkit-scrollbar { display: none; }
     .toast button {
       all: unset; box-sizing: border-box;
       cursor: pointer; flex: none;
       min-width: var(--tap); min-height: var(--tap); padding: 4px 8px;
       color: var(--toast-text);
-      font-weight: 600; text-decoration: underline;
+      border: 1px solid color-mix(in srgb, var(--toast-text) 28%, transparent);
+      border-radius: var(--radius-sm);
+      font-size: 13px;
+      font-weight: 600;
+      white-space: nowrap;
     }
 
     .count { font-size: 14px; color: var(--color-muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
@@ -1648,12 +1818,11 @@
     @media (min-width: 760px) {
       .app-shell { padding-top: calc(30px + var(--safe-top)); }
       .two-col { grid-template-columns: 1.05fr .95fr; }
-      .edit-organize-grid { grid-template-columns: minmax(0, 1fr) 170px; }
     }
 
     @media (max-width: 340px) {
-      .edit-organize-grid { grid-template-columns: minmax(0, 1fr) 136px; }
       .edit-compact-row .tiny-note { max-width: 52%; }
+      .return-actions { grid-template-columns: repeat(2, minmax(0, 1fr)); }
     }
 
     @media (max-width: 560px) {
@@ -1719,6 +1888,25 @@
           </div>
         </div>
 
+        <section class="panel weekly-session-trigger" id="weeklySessionSection" hidden>
+          <button class="day-close-trigger" id="openWeeklySessionButton" type="button">
+            <span class="day-close-icon" aria-hidden="true"><svg class="ui-icon" viewBox="0 0 24 24" focusable="false"><path d="M4 6h16v15H4z"></path><path d="M8 3v6M16 3v6M4 11h16"></path><path d="m8 16 2 2 5-5"></path></svg></span>
+            <span class="day-close-copy">
+              <strong>جلسة مرساة</strong>
+              <small id="weeklySessionButtonStatus">راجع ما حان وما طال انتظاره</small>
+            </span>
+            <span class="day-close-chevron" aria-hidden="true">‹</span>
+          </button>
+        </section>
+
+        <section class="panel returned-today" id="returnedTodaySection" hidden>
+          <div class="section-head">
+            <h2>عاد اليوم</h2>
+            <span class="count" id="returnedTodayCount"></span>
+          </div>
+          <div class="return-list" id="returnedTodayList"></div>
+        </section>
+
         <section class="panel top-priorities">
           <div class="section-head">
             <h2>أهم اليوم</h2>
@@ -1776,7 +1964,6 @@
                 <select class="select-field" id="entriesSort">
                   <option value="newest">الأحدث</option>
                   <option value="oldest">الأقدم</option>
-                  <option value="due">أقرب موعد</option>
                 </select>
               </div>
               <button class="quiet-btn filter-clear" id="clearEntriesFiltersButton" type="button">مسح الكل</button>
@@ -1785,7 +1972,7 @@
           <details class="insight-panel analysis-overview">
             <summary><span>المؤشرات</span><span class="insight-summary-value">من سجلاتك المحلية</span></summary>
             <dl class="analysis-summary" aria-label="مؤشرات مشتقة من السجلات المحلية لآخر سبعة أيام، دون تتبع الاستخدام">
-              <div class="analysis-row" title="نسبة الالتقاطات الحديثة التي لم تعد حاليًا في مسار للنظر">
+              <div class="analysis-row" title="نسبة الالتقاطات الحديثة التي انتقلت إلى مسار أو حُسمت">
                 <dt>معدل الحسم</dt>
                 <dd><strong id="analysisResolutionRate" dir="ltr">—</strong><small id="analysisResolutionDetail">لا التقاطات جديدة</small></dd>
               </div>
@@ -1911,6 +2098,7 @@
           <input id="captureFileInput" type="file" multiple hidden>
         </div>
         <div class="preview-grid" id="capturePreview"></div>
+        <p class="form-status" id="captureStatus" role="status" aria-live="polite" hidden></p>
         <div class="dialog-actions">
           <button type="button" class="quiet-btn" data-close-dialog="captureDialog">إلغاء</button>
           <button type="submit" class="primary-btn" id="saveCaptureButton">حفظ</button>
@@ -1928,7 +2116,7 @@
       <form id="directionForm" class="stack">
         <div class="form-group">
           <label for="directionEditor">النص</label>
-          <textarea class="field direction-field" id="directionEditor" maxlength="500" rows="6" dir="auto" placeholder="اكتب توجّه اليوم…"></textarea>
+          <textarea class="field direction-field" id="directionEditor" maxlength="500" rows="6" dir="auto" placeholder="ما وجهتك اليوم؟"></textarea>
         </div>
         <div class="dialog-actions">
           <button type="button" class="quiet-btn" data-close-dialog="directionDialog">إلغاء</button>
@@ -1957,7 +2145,7 @@
         <form class="stack" id="eveningCloseForm">
           <div class="form-group">
             <label for="eveningTomorrowDirection">توجّه الغد</label>
-            <textarea class="field direction-field" id="eveningTomorrowDirection" maxlength="500" rows="3" dir="auto" placeholder="ما الذي يستحق أن يقود الغد؟"></textarea>
+            <textarea class="field direction-field" id="eveningTomorrowDirection" maxlength="500" rows="3" dir="auto" placeholder="ما وجهتك غدًا؟"></textarea>
           </div>
           <p class="evening-closed-status" id="eveningClosedStatus" role="status" aria-live="polite"></p>
           <div class="dialog-actions">
@@ -1988,14 +2176,14 @@
           </div>
         </section>
         <section class="edit-section">
-          <div class="edit-organize-grid">
+          <div class="edit-routing-grid">
             <div class="form-group">
               <label for="editPath">المسار</label>
               <select class="select-field" id="editPath"></select>
             </div>
-            <div class="form-group edit-date-group">
-              <label for="editDueDate">موعد التنفيذ</label>
-              <input class="field" id="editDueDate" type="date" lang="en-GB" dir="ltr">
+            <div class="form-group">
+              <label for="editReturnDate">تاريخ العودة</label>
+              <input class="field edit-return-field" id="editReturnDate" type="date" lang="en-GB" dir="ltr">
             </div>
           </div>
           <div class="edit-compact-row">
@@ -2028,6 +2216,38 @@
     </div>
   </dialog>
 
+  <dialog class="weekly-session-sheet" id="weeklySessionDialog">
+    <div class="dialog-inner">
+      <div class="dialog-head">
+        <h2>جلسة مرساة</h2>
+        <button class="dialog-close" data-close-dialog="weeklySessionDialog" aria-label="إغلاق">×</button>
+      </div>
+      <p class="tiny-note weekly-session-intro">احسم ما عاد، وما طال انتظاره، وما بقي بلا موعد.</p>
+      <div class="weekly-session-sections">
+        <section class="weekly-session-group" id="weeklyOverdueGroup" hidden>
+          <h3>المتأخر</h3>
+          <div class="return-list" id="weeklyOverdueList"></div>
+        </section>
+        <section class="weekly-session-group" id="weeklyDueGroup" hidden>
+          <h3>موعده الجلسة</h3>
+          <div class="return-list" id="weeklyDueList"></div>
+        </section>
+        <section class="weekly-session-group" id="weeklyWaitingGroup" hidden>
+          <h3>بانتظار بلا حراك</h3>
+          <div class="return-list" id="weeklyWaitingList"></div>
+        </section>
+        <section class="weekly-session-group" id="weeklyUndatedGroup" hidden>
+          <h3>بلا تاريخ عودة</h3>
+          <div class="return-list" id="weeklyUndatedList"></div>
+        </section>
+      </div>
+      <div class="dialog-actions">
+        <button class="secondary-btn" type="button" data-close-dialog="weeklySessionDialog">لاحقًا</button>
+        <button class="primary-btn" id="completeWeeklySessionButton" type="button">إنهاء الجلسة</button>
+      </div>
+    </div>
+  </dialog>
+
   <dialog class="entry-details-sheet" id="entryDetailsDialog">
     <div class="dialog-inner stack">
       <div class="dialog-head">
@@ -2055,7 +2275,24 @@
         <ol class="entry-details-events" id="entryDetailsEvents"></ol>
       </section>
       <div class="dialog-actions">
+        <button class="secondary-btn" id="entryDetailsShare" type="button">مشاركة</button>
         <button class="secondary-btn" id="entryDetailsEdit" type="button">تحرير</button>
+      </div>
+    </div>
+  </dialog>
+
+  <dialog class="entry-share-sheet" id="entryShareDialog">
+    <div class="dialog-inner stack">
+      <div class="dialog-head">
+        <h2>نسخ إلى تطبيق</h2>
+        <button class="dialog-close" data-close-dialog="entryShareDialog" aria-label="إغلاق">×</button>
+      </div>
+      <p class="entry-share-preview" id="entrySharePreview" dir="auto"></p>
+      <p class="tiny-note entry-share-note" id="entryShareNote" hidden></p>
+      <div class="entry-share-actions">
+        <button class="secondary-btn" id="entryShareSystemButton" type="button">Notes أو التذكيرات…</button>
+        <button class="primary-btn" id="entryShareThingsButton" type="button">إضافة إلى Things</button>
+        <button class="quiet-btn" id="entryCopyTextButton" type="button">نسخ النص</button>
       </div>
     </div>
   </dialog>
@@ -2131,6 +2368,22 @@
           </div>
         </section>
         <section class="settings-item">
+          <h3>جلسة مرساة</h3>
+          <p>يظهر زر المراجعة في هذا اليوم من كل أسبوع.</p>
+          <div class="form-group">
+            <label for="weeklySessionDay">يوم الجلسة</label>
+            <select class="select-field" id="weeklySessionDay">
+              <option value="0">الأحد</option>
+              <option value="1">الاثنين</option>
+              <option value="2">الثلاثاء</option>
+              <option value="3">الأربعاء</option>
+              <option value="4">الخميس</option>
+              <option value="5">الجمعة</option>
+              <option value="6">السبت</option>
+            </select>
+          </div>
+        </section>
+        <section class="settings-item">
           <h3>حماية التخزين</h3>
           <p id="storageStatus">جارٍ فحص حالة التخزين…</p>
           <div class="storage-meter" id="storageMeter" role="progressbar" aria-label="استهلاك مساحة التخزين" aria-valuemin="0" aria-valuemax="100" hidden>
@@ -2192,7 +2445,7 @@
 
   <div class="toast" id="toast" role="status" aria-live="polite">
     <span id="toastText"></span>
-    <button id="toastAction" hidden></button>
+    <div class="toast-actions" id="toastActions"></div>
   </div>
 
   <script src="./app.js" defer></script>

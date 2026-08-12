@@ -2,9 +2,10 @@
 'use strict';
 
 const DB_NAME = 'mersah-daily';
-const DB_VERSION = 3;
+const DB_VERSION = 4;
 const LEGACY_DB_NAME = 'mersah-db';
 const DAY = 24 * 60 * 60 * 1000;
+const DAY_START_HOUR = 4;
 const TRASH_RETENTION_DAYS = 7;
 const BACKUP_REMINDER_DAYS = 7;
 const BACKUP_VERIFICATION_REMINDER_DAYS = 90;
@@ -22,7 +23,12 @@ const MAX_ENTRY_EVENT_LOG_ENTRIES = 100000;
 const HEATMAP_DAYS = 90;
 const DECISION_WINDOW_MIN_EVENTS = 30;
 const DECISION_WINDOW_HOURS = 3;
-const BACKUP_SCHEMA_VERSION = 5;
+const MAX_DAILY_RETURNS = 7;
+const MAX_WEEKLY_UNDATED_RETURNS = 10;
+const DEFAULT_WEEKLY_SESSION_DAY = 5;
+const RETURN_MIGRATION_SETTING = 'returnDateMigrationV91';
+const WEEKLY_SESSION_COMPLETED_SETTING = 'weeklySessionCompletedDate';
+const BACKUP_SCHEMA_VERSION = 6;
 const MAX_ATTACHMENT_BYTES = 20 * 1024 * 1024;
 const MAX_IMAGE_SOURCE_BYTES = 50 * 1024 * 1024;
 const MAX_ATTACHMENTS_PER_ENTRY = 30;
@@ -44,7 +50,7 @@ const ENTRY_TYPES = Object.freeze({
 });
 
 const PATHS = Object.freeze({
-  untriaged: 'غير مفرز',
+  untriaged: '',
   do: 'نفّذ',
   consider: 'للنظر',
   waiting: 'بانتظار'
@@ -76,12 +82,22 @@ const STATUSES = Object.freeze({
   trash: 'محذوف'
 });
 
+const RETURN_SCHEDULES = Object.freeze([
+  { key: 'tomorrow', label: 'غدًا', days: 1, path: 'do' },
+  { key: 'this-week', label: 'هذا الأسبوع', days: 3, path: 'do' },
+  { key: 'next-week', label: 'الأسبوع القادم', days: 7, path: 'consider' },
+  { key: 'month', label: 'بعد شهر', days: 30, path: 'consider' },
+  { key: 'session', label: 'الجلسة', days: null, path: 'consider' }
+]);
+
 const ENTRY_EVENT_TYPES = new Set([
   'created',
   'path_changed',
   'status_changed',
   'text_updated',
   'due_date_changed',
+  'return_date_changed',
+  'return_deferred',
   'top_added',
   'top_removed',
   'attachments_added',
@@ -119,11 +135,14 @@ let entriesResultsLimit = ENTRY_PAGE_SIZE;
 let captureDraftAttachments = [];
 let editNewAttachments = [];
 let editRemovedAttachmentIds = new Set();
-let attachmentUrlCache = new Map();
+let attachmentImageObserver = null;
+const observedAttachmentImages = new Set();
+let attachmentImageFallbackFrame = 0;
 let activeViewerAttachment = null;
 let activeViewerTemporaryUrl = null;
 let activeFileViewerAttachment = null;
 let activeDetailsEntryId = null;
+let activeShareEntryId = null;
 let observedDayKey = dateKey();
 let toastTimer;
 let selectedDirectionTimer;
@@ -159,6 +178,22 @@ const elements = {
   quickTaskInput: $('#quickTaskInput'),
   addTopTaskButton: $('#addTopTaskButton'),
   topCandidates: $('#topCandidates'),
+  returnedTodaySection: $('#returnedTodaySection'),
+  returnedTodayCount: $('#returnedTodayCount'),
+  returnedTodayList: $('#returnedTodayList'),
+  weeklySessionSection: $('#weeklySessionSection'),
+  openWeeklySessionButton: $('#openWeeklySessionButton'),
+  weeklySessionButtonStatus: $('#weeklySessionButtonStatus'),
+  weeklySessionDialog: $('#weeklySessionDialog'),
+  weeklyOverdueGroup: $('#weeklyOverdueGroup'),
+  weeklyOverdueList: $('#weeklyOverdueList'),
+  weeklyDueGroup: $('#weeklyDueGroup'),
+  weeklyDueList: $('#weeklyDueList'),
+  weeklyWaitingGroup: $('#weeklyWaitingGroup'),
+  weeklyWaitingList: $('#weeklyWaitingList'),
+  weeklyUndatedGroup: $('#weeklyUndatedGroup'),
+  weeklyUndatedList: $('#weeklyUndatedList'),
+  completeWeeklySessionButton: $('#completeWeeklySessionButton'),
   todayTimeline: $('#todayTimeline'),
   loadMoreTodayButton: $('#loadMoreTodayButton'),
   openEveningCloseButton: $('#openEveningCloseButton'),
@@ -220,14 +255,16 @@ const elements = {
   captureCameraInput: $('#captureCameraInput'),
   captureFileInput: $('#captureFileInput'),
   capturePreview: $('#capturePreview'),
+  captureStatus: $('#captureStatus'),
+  saveCaptureButton: $('#saveCaptureButton'),
   editDialog: $('#editDialog'),
   editForm: $('#editForm'),
   editEntryId: $('#editEntryId'),
   editText: $('#editText'),
   editTextUnlockButton: $('#editTextUnlockButton'),
   editPath: $('#editPath'),
+  editReturnDate: $('#editReturnDate'),
   editPathAge: $('#editPathAge'),
-  editDueDate: $('#editDueDate'),
   editEntryAge: $('#editEntryAge'),
   editAttachmentsOptions: $('#editAttachmentsOptions'),
   editTopToday: $('#editTopToday'),
@@ -255,7 +292,14 @@ const elements = {
   entryDetailsPath: $('#entryDetailsPath'),
   entryDetailsAttachments: $('#entryDetailsAttachments'),
   entryDetailsEvents: $('#entryDetailsEvents'),
+  entryDetailsShare: $('#entryDetailsShare'),
   entryDetailsEdit: $('#entryDetailsEdit'),
+  entryShareDialog: $('#entryShareDialog'),
+  entrySharePreview: $('#entrySharePreview'),
+  entryShareNote: $('#entryShareNote'),
+  entryShareSystemButton: $('#entryShareSystemButton'),
+  entryShareThingsButton: $('#entryShareThingsButton'),
+  entryCopyTextButton: $('#entryCopyTextButton'),
   confirmDialog: $('#confirmDialog'),
   confirmTitle: $('#confirmTitle'),
   confirmText: $('#confirmText'),
@@ -266,6 +310,7 @@ const elements = {
   themeColor: $('#themeColor'),
   themeLightButton: $('#themeLightButton'),
   themeDarkButton: $('#themeDarkButton'),
+  weeklySessionDay: $('#weeklySessionDay'),
   storageStatus: $('#storageStatus'),
   storageMeter: $('#storageMeter'),
   storageMeterFill: $('#storageMeterFill'),
@@ -289,12 +334,19 @@ const elements = {
   emptyTrashButton: $('#emptyTrashButton'),
   toast: $('#toast'),
   toastText: $('#toastText'),
-  toastAction: $('#toastAction')
+  toastActions: $('#toastActions')
 };
 
 function openDatabase() {
   if (databasePromise) return databasePromise;
-  databasePromise = new Promise((resolve, reject) => {
+  const pending = new Promise((resolve, reject) => {
+    if (!('indexedDB' in window)) {
+      const error = new Error('التخزين المحلي غير متاح في هذا السياق.');
+      error.code = 'STORAGE_UNAVAILABLE';
+      reject(error);
+      return;
+    }
+    let settled = false;
     const request = indexedDB.open(DB_NAME, DB_VERSION);
     request.onupgradeneeded = event => {
       const db = request.result;
@@ -310,6 +362,9 @@ function openDatabase() {
       if (!db.objectStoreNames.contains('attachments')) {
         const store = db.createObjectStore('attachments', { keyPath: 'id' });
         store.createIndex('entryId', 'entryId', { unique: false });
+      }
+      if (!db.objectStoreNames.contains('attachmentData')) {
+        db.createObjectStore('attachmentData', { keyPath: 'id' });
       }
       if (!db.objectStoreNames.contains('daily')) {
         db.createObjectStore('daily', { keyPath: 'date' });
@@ -328,10 +383,52 @@ function openDatabase() {
           cursor.continue();
         };
       }
+      if (event.oldVersion < 4) {
+        const attachmentStore = request.transaction.objectStore('attachments');
+        const attachmentDataStore = request.transaction.objectStore('attachmentData');
+        const cursorRequest = attachmentStore.openCursor();
+        cursorRequest.onsuccess = () => {
+          const cursor = cursorRequest.result;
+          if (!cursor) return;
+          const attachment = cursor.value;
+          if (attachment?.blob instanceof Blob) {
+            attachmentDataStore.put({ id: attachment.id, blob: attachment.blob });
+            cursor.update(attachmentMetadata(attachment));
+          }
+          cursor.continue();
+        };
+      }
     };
-    request.onsuccess = () => resolve(request.result);
-    request.onerror = () => reject(request.error || new Error('تعذر فتح قاعدة البيانات.'));
-    request.onblocked = () => reject(new Error('قاعدة البيانات مفتوحة في نافذة أخرى.'));
+    request.onsuccess = () => {
+      const db = request.result;
+      if (settled) {
+        db.close();
+        return;
+      }
+      settled = true;
+      db.addEventListener('versionchange', () => {
+        db.close();
+        databasePromise = null;
+        showToast('يوجد تحديث لقاعدة مرساة. أعد فتح التطبيق.');
+      });
+      resolve(db);
+    };
+    request.onerror = () => {
+      if (settled) return;
+      settled = true;
+      reject(request.error || new Error('تعذر فتح قاعدة البيانات.'));
+    };
+    request.onblocked = () => {
+      if (settled) return;
+      settled = true;
+      const error = new Error('قاعدة مرساة مفتوحة في تبويب آخر.');
+      error.code = 'DB_BLOCKED';
+      reject(error);
+    };
+  });
+  databasePromise = pending.catch(error => {
+    databasePromise = null;
+    throw error;
   });
   return databasePromise;
 }
@@ -342,6 +439,16 @@ async function getAll(storeName) {
     const tx = db.transaction(storeName, 'readonly');
     const request = tx.objectStore(storeName).getAll();
     request.onsuccess = () => resolve(request.result || []);
+    request.onerror = () => reject(request.error);
+  });
+}
+
+async function getRecord(storeName, key) {
+  const db = await openDatabase();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(storeName, 'readonly');
+    const request = tx.objectStore(storeName).get(key);
+    request.onsuccess = () => resolve(request.result || null);
     request.onerror = () => reject(request.error);
   });
 }
@@ -367,11 +474,15 @@ async function deleteRecord(storeName, key) {
 }
 
 async function writeImportBatch(batch) {
-  return runAtomicWrite(['entries', 'daily', 'settings', 'attachments'], (stores, track) => {
-    for (const storeName of ['entries', 'daily', 'settings', 'attachments']) {
+  return runAtomicWrite(['entries', 'daily', 'settings', 'attachments', 'attachmentData'], (stores, track) => {
+    for (const storeName of ['entries', 'daily', 'settings']) {
       for (const value of batch[storeName] || []) {
         track(stores[storeName].put(value));
       }
+    }
+    for (const attachment of batch.attachments || []) {
+      track(stores.attachments.put(attachmentMetadata(attachment)));
+      track(stores.attachmentData.put(attachmentDataRecord(attachment)));
     }
   });
 }
@@ -478,6 +589,12 @@ function isQuotaExceededError(error) {
 }
 
 function storageFailureMessage(error, action = 'حفظ البيانات') {
+  if (error?.code === 'DB_BLOCKED') {
+    return `تعذر ${action}: أغلق تبويبات مرساة الأخرى، ثم أعد المحاولة.`;
+  }
+  if (error?.code === 'STORAGE_UNAVAILABLE' || location.protocol === 'file:') {
+    return `تعذر ${action}: افتح مرساة عبر HTTPS أو localhost، لا من ملف index.html مباشرة.`;
+  }
   if (isQuotaExceededError(error)) {
     return `تعذر ${action}: مساحة تخزين مرساة غير كافية. لم تُحفظ تغييرات جزئية؛ صدّر نسخة ثم حرّر مساحة من الجهاز.`;
   }
@@ -509,7 +626,7 @@ function localCreationStamp(value = new Date()) {
   const date = value instanceof Date ? value : new Date(value);
   const safeDate = Number.isNaN(date.getTime()) ? new Date() : date;
   return {
-    date: dateKey(safeDate),
+    date: civilDateKey(safeDate),
     hour: safeDate.getHours(),
     minute: safeDate.getMinutes(),
     timeZone: resolvedTimeZone(),
@@ -517,10 +634,17 @@ function localCreationStamp(value = new Date()) {
   };
 }
 
+function civilDateKey(value = new Date()) {
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) return civilDateKey();
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+}
+
 function dateKey(value = new Date()) {
   const date = value instanceof Date ? value : new Date(value);
   if (Number.isNaN(date.getTime())) return dateKey();
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+  const civilDay = civilDateKey(date);
+  return date.getHours() < DAY_START_HOUR ? shiftDateKey(civilDay, -1) : civilDay;
 }
 
 function dateFromKey(key) {
@@ -531,14 +655,53 @@ function dateFromKey(key) {
 function shiftDateKey(key, amount) {
   const date = dateFromKey(key);
   date.setDate(date.getDate() + amount);
-  return dateKey(date);
+  return civilDateKey(date);
+}
+
+function weeklySessionDayValue(value = settingsMap.get('weeklySessionDay')) {
+  const day = Number(value);
+  return Number.isInteger(day) && day >= 0 && day <= 6 ? day : DEFAULT_WEEKLY_SESSION_DAY;
+}
+
+function nextWeeklySessionDate(fromKey = dateKey()) {
+  const from = dateFromKey(fromKey);
+  let offset = (weeklySessionDayValue() - from.getDay() + 7) % 7;
+  if (offset === 0) offset = 7;
+  return shiftDateKey(fromKey, offset);
+}
+
+function scheduledReturnCount(targetDate, exceptEntryId = null, today = dateKey()) {
+  const carryOverdue = targetDate === shiftDateKey(today, 1);
+  return entries.filter(entry => entry.id !== exceptEntryId
+    && entry.status === 'open'
+    && validDateKey(entry.followUpDate)
+    && (entry.followUpDate === targetDate || (carryOverdue && entry.followUpDate <= today))).length;
+}
+
+function resolveReturnSchedule(schedule, exceptEntryId = null, today = dateKey(), { enforceCapacity = true } = {}) {
+  const requestedDate = schedule.key === 'session'
+    ? nextWeeklySessionDate(today)
+    : shiftDateKey(today, schedule.days);
+  const sessionDate = nextWeeklySessionDate(today);
+  const shifted = enforceCapacity && schedule.key !== 'session' && requestedDate !== sessionDate
+    && scheduledReturnCount(requestedDate, exceptEntryId, today) >= MAX_DAILY_RETURNS;
+  return {
+    ...schedule,
+    requestedDate,
+    date: shifted ? sessionDate : requestedDate,
+    shifted
+  };
+}
+
+function resolvedReturnSchedules(exceptEntryId = null, today = dateKey(), options = {}) {
+  return RETURN_SCHEDULES.map(schedule => resolveReturnSchedule(schedule, exceptEntryId, today, options));
 }
 
 function validDateKey(value) {
   const text = String(value || '');
   if (!/^\d{4}-\d{2}-\d{2}$/.test(text)) return null;
   const d = dateFromKey(text);
-  const normalized = dateKey(d);
+  const normalized = civilDateKey(d);
   return Number.isNaN(d.getTime()) || normalized !== text ? null : text;
 }
 
@@ -557,7 +720,7 @@ function monthDate(key) {
 function shiftMonthKey(key, amount) {
   const date = monthDate(key);
   date.setMonth(date.getMonth() + amount);
-  return dateKey(date).slice(0, 7);
+  return civilDateKey(date).slice(0, 7);
 }
 
 function validIso(value) {
@@ -792,7 +955,7 @@ function createEntryEvent(type, at = nowIso(), details = {}, stamp = localCreati
     id: uid('event'),
     type: ENTRY_EVENT_TYPES.has(type) ? type : 'text_updated',
     at,
-    localDate: stamp?.date || dateKey(at),
+    localDate: stamp?.date || civilDateKey(at),
     localHour: Number.isInteger(stamp?.hour) ? stamp.hour : new Date(at).getHours(),
     localMinute: Number.isInteger(stamp?.minute) ? stamp.minute : new Date(at).getMinutes(),
     timeZone: stamp?.timeZone || null,
@@ -871,6 +1034,12 @@ function entryChangeEvents(current, updated, at) {
   if (updated.dueDate !== current.dueDate) {
     events.push(createEntryEvent('due_date_changed', at, { from: current.dueDate, to: updated.dueDate }));
   }
+  if (updated.followUpDate !== current.followUpDate) {
+    events.push(createEntryEvent('return_date_changed', at, {
+      from: current.followUpDate,
+      to: updated.followUpDate
+    }));
+  }
   if (updated.topTodayDate !== current.topTodayDate) {
     events.push(createEntryEvent(updated.topTodayDate ? 'top_added' : 'top_removed', at, {
       from: current.topTodayDate,
@@ -908,8 +1077,40 @@ function attachmentsFor(entryId) {
   return attachmentsByEntry.get(entryId) || [];
 }
 
+function attachmentMetadata(attachment) {
+  const size = Number(attachment?.size || attachment?.blob?.size || 0);
+  return {
+    id: attachment.id,
+    entryId: attachment.entryId,
+    name: safeAttachmentName(attachment.name),
+    type: normalizedAttachmentType(attachment.type || attachment?.blob?.type),
+    size: Number.isSafeInteger(size) && size >= 0 ? size : 0,
+    createdAt: attachment.createdAt || nowIso()
+  };
+}
+
+function attachmentDataRecord(attachment) {
+  if (!(attachment?.blob instanceof Blob)) throw new Error('بيانات المرفق غير متاحة للحفظ.');
+  return { id: attachment.id, blob: attachment.blob };
+}
+
+async function attachmentWithBlob(attachment) {
+  if (attachment?.blob instanceof Blob) return attachment;
+  const stored = await getRecord('attachmentData', attachment?.id);
+  if (!(stored?.blob instanceof Blob)) throw new Error('تعذر قراءة بيانات المرفق.');
+  if (Number.isSafeInteger(attachment?.size) && attachment.size !== stored.blob.size) {
+    throw new Error('حجم المرفق لا يطابق بياناته المحفوظة.');
+  }
+  return { ...attachment, blob: stored.blob };
+}
+
 function entryDate(entry) {
-  return validDateKey(entry?.createdLocal?.date) || dateKey(entry.createdAt);
+  const localDate = validDateKey(entry?.createdLocal?.date);
+  const localHour = Number(entry?.createdLocal?.hour);
+  if (localDate && Number.isInteger(localHour) && localHour >= 0 && localHour <= 23) {
+    return localHour < DAY_START_HOUR ? shiftDateKey(localDate, -1) : localDate;
+  }
+  return localDate || dateKey(entry.createdAt);
 }
 
 function dailyRecordFor(key) {
@@ -1026,11 +1227,38 @@ async function refreshData() {
   refreshDataViews({ applyStoredTheme: true });
 }
 
+async function migrateLegacyReturnDates() {
+  if (settingsMap.has(RETURN_MIGRATION_SETTING)) return;
+  const today = dateKey();
+  const sessionDate = nextWeeklySessionDate(today);
+  const migratedEntries = entries
+    .filter(entry => entry.status === 'open'
+      && validDateKey(entry.followUpDate)
+      && entry.followUpDate < today)
+    .map(entry => buildUpdatedEntry(entry, { followUpDate: sessionDate }));
+  const completedAt = nowIso();
+  const marker = {
+    key: RETURN_MIGRATION_SETTING,
+    value: { completedAt, moved: migratedEntries.length, targetDate: sessionDate },
+    updatedAt: completedAt
+  };
+  await runAtomicWrite(['entries', 'settings'], (stores, track) => {
+    migratedEntries.forEach(entry => track(stores.entries.put(entry)));
+    track(stores.settings.put(marker));
+  });
+  if (migratedEntries.length) {
+    const migratedById = new Map(migratedEntries.map(entry => [entry.id, entry]));
+    entries = entries.map(entry => migratedById.get(entry.id) || entry);
+  }
+  settings = [marker, ...settings.filter(item => item.key !== RETURN_MIGRATION_SETTING)];
+  settingsMap.set(RETURN_MIGRATION_SETTING, marker.value);
+  refreshDataViews();
+}
+
 function refreshDataViews({ applyStoredTheme = false } = {}) {
   entries.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
   attachments.sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
   dailyRecords.sort((a, b) => b.date.localeCompare(a.date));
-  pruneAttachmentUrlCache();
   if (applyStoredTheme) applyTheme();
   rebuildDataIndexes();
   analysisDataRevision += 1;
@@ -1052,6 +1280,7 @@ function renderAll() {
   if (elements.entryDetailsDialog.open && activeDetailsEntryId) {
     renderEntryDetails(activeDetailsEntryId);
   }
+  if (elements.weeklySessionDialog.open) renderWeeklySessionDialog();
 }
 
 function renderCurrentView() {
@@ -1111,9 +1340,211 @@ function renderToday() {
   elements.addTopTaskButton.disabled = top.length >= 3;
   elements.openTopTaskDialog.hidden = top.length >= 3;
   if (top.length >= 3 && elements.topTaskDialog.open) elements.topTaskDialog.close();
+  renderReturnedToday(today);
   renderTopTasks(today, top);
+  renderWeeklySessionButton(today);
   renderEveningCloseButton(today);
   renderTodayTimeline(today);
+}
+
+function deferredReturnCount(entry) {
+  return storedEntryEventLog(entry).filter(event => event.type === 'return_deferred').length;
+}
+
+function returnedEntriesFor(today = dateKey()) {
+  return entries
+    .filter(entry => entry.status === 'open'
+      && validDateKey(entry.followUpDate)
+      && entry.followUpDate <= today
+      && entry.topTodayDate !== today)
+    .sort((a, b) => a.followUpDate.localeCompare(b.followUpDate)
+      || new Date(a.createdAt) - new Date(b.createdAt));
+}
+
+function returnActionButton(label, handler, { className = '', iconName = '', disabled = false } = {}) {
+  const button = document.createElement('button');
+  button.type = 'button';
+  button.className = `return-action ${className}`.trim();
+  button.disabled = disabled;
+  if (iconName) button.append(uiIcon(iconName));
+  const text = document.createElement('span');
+  text.textContent = label;
+  button.append(text);
+  button.addEventListener('click', handler);
+  return button;
+}
+
+function createReturnDateMenu(entry) {
+  const details = document.createElement('details');
+  details.className = 'return-defer-menu';
+  const summary = document.createElement('summary');
+  summary.textContent = 'أجّل';
+  const options = document.createElement('div');
+  options.className = 'return-date-options';
+  resolvedReturnSchedules(entry.id, dateKey(), { enforceCapacity: false }).forEach(schedule => {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'return-date-option';
+    button.textContent = schedule.shifted ? `${schedule.label} ← الجلسة` : schedule.label;
+    button.addEventListener('click', async () => {
+      details.removeAttribute('open');
+      await scheduleEntryReturn(entry.id, schedule.key, { deferred: true });
+    });
+    options.append(button);
+  });
+  details.append(summary, options);
+  return details;
+}
+
+function createReturnCard(entry) {
+  const card = document.createElement('article');
+  card.className = `return-card path-${entry.path}`;
+  card.dataset.entryId = entry.id;
+
+  const head = document.createElement('div');
+  head.className = 'return-card-head';
+  const text = document.createElement('button');
+  text.type = 'button';
+  text.className = 'return-card-text';
+  text.dir = 'auto';
+  text.textContent = entry.text || attachmentOnlyLabel(entry);
+  text.setAttribute('aria-label', `عرض تفاصيل الالتقاطة: ${text.textContent}`);
+  text.addEventListener('click', () => openEntryDetails(entry.id));
+  const path = document.createElement('span');
+  path.className = `chip path-${entry.path}`;
+  path.title = PATHS[entry.path] || 'دون مسار';
+  path.setAttribute('aria-label', path.title);
+  path.append(pathIcon(entry.path));
+  head.append(text, path);
+
+  const meta = document.createElement('div');
+  meta.className = 'return-card-meta';
+  const today = dateKey();
+  const overdueDays = validDateKey(entry.followUpDate)
+    ? Math.max(0, daysBetweenKeys(entry.followUpDate, today))
+    : 0;
+  if (overdueDays > 0) {
+    const overdue = document.createElement('span');
+    overdue.className = 'return-overdue';
+    overdue.textContent = `متأخر ${ageDaysLabel(overdueDays)}`;
+    meta.append(overdue);
+  } else if (entry.followUpDate === today) {
+    meta.append(document.createTextNode('موعده اليوم'));
+  } else if (validDateKey(entry.followUpDate)) {
+    meta.append(document.createTextNode(`يعود ${relativeDayLabel(entry.followUpDate)}`));
+  } else {
+    meta.append(document.createTextNode('بلا تاريخ عودة'));
+  }
+  const deferredCount = deferredReturnCount(entry);
+  if (deferredCount >= 3) {
+    const deferred = document.createElement('span');
+    deferred.textContent = `· أُجّل ${formatNumber(deferredCount)} مرات`;
+    meta.append(deferred);
+  }
+
+  const actions = document.createElement('div');
+  actions.className = 'return-actions';
+  const topDisabled = !canAddTop(today, entry.id);
+  actions.append(
+    returnActionButton('تمّ', () => setEntryStatus(entry.id, 'done'), { className: 'primary', iconName: 'check' }),
+    createReturnDateMenu(entry),
+    returnActionButton('أهم اليوم', () => setTopToday(entry.id, today), {
+      className: 'top',
+      iconName: 'star',
+      disabled: topDisabled
+    }),
+    returnActionButton('أغلق', () => setEntryStatus(entry.id, 'closed'))
+  );
+  card.append(head, meta, actions);
+  return card;
+}
+
+function renderReturnedToday(today = dateKey()) {
+  const list = returnedEntriesFor(today);
+  const overdue = list.filter(entry => entry.followUpDate < today).length;
+  elements.returnedTodaySection.hidden = list.length === 0;
+  elements.returnedTodayCount.textContent = overdue
+    ? `${formatNumber(list.length)} · متأخر ${formatNumber(overdue)}`
+    : formatNumber(list.length);
+  elements.returnedTodayList.replaceChildren(...list.map(createReturnCard));
+}
+
+function intentionallyClearedReturnDate(entry) {
+  const latest = storedEntryEventLog(entry).slice().reverse()
+    .find(event => event.type === 'return_date_changed');
+  return Boolean(latest && !latest.to);
+}
+
+function waitingStagnationDays(entry) {
+  const pathAge = currentPathAgeDays(entry);
+  if (pathAge != null) return pathAge;
+  const lastChange = validIso(entry.updatedAt) || validIso(entry.createdAt);
+  return lastChange ? Math.max(0, Math.floor((Date.now() - new Date(lastChange).getTime()) / DAY)) : 0;
+}
+
+function weeklySessionLists(today = dateKey()) {
+  const source = entries.filter(entry => entry.status === 'open' && entry.topTodayDate !== today);
+  const used = new Set();
+  const take = (predicate, sorter, limit = Infinity) => source
+    .filter(entry => !used.has(entry.id) && predicate(entry))
+    .sort(sorter)
+    .slice(0, limit)
+    .map(entry => {
+      used.add(entry.id);
+      return entry;
+    });
+  const byReturnThenCreated = (a, b) => (a.followUpDate || '').localeCompare(b.followUpDate || '')
+    || new Date(a.createdAt) - new Date(b.createdAt);
+  const overdue = take(entry => validDateKey(entry.followUpDate) && entry.followUpDate < today, byReturnThenCreated);
+  const due = take(entry => validDateKey(entry.followUpDate) === today, byReturnThenCreated);
+  const waiting = take(
+    entry => entry.path === 'waiting' && waitingStagnationDays(entry) >= 7,
+    (a, b) => waitingStagnationDays(b) - waitingStagnationDays(a)
+  );
+  const undated = take(
+    entry => !validDateKey(entry.followUpDate) && !intentionallyClearedReturnDate(entry),
+    (a, b) => new Date(a.createdAt) - new Date(b.createdAt),
+    MAX_WEEKLY_UNDATED_RETURNS
+  );
+  return { overdue, due, waiting, undated };
+}
+
+function renderWeeklySessionGroup(group, container, list) {
+  group.hidden = list.length === 0;
+  container.replaceChildren(...list.map(createReturnCard));
+}
+
+function renderWeeklySessionDialog() {
+  const lists = weeklySessionLists();
+  renderWeeklySessionGroup(elements.weeklyOverdueGroup, elements.weeklyOverdueList, lists.overdue);
+  renderWeeklySessionGroup(elements.weeklyDueGroup, elements.weeklyDueList, lists.due);
+  renderWeeklySessionGroup(elements.weeklyWaitingGroup, elements.weeklyWaitingList, lists.waiting);
+  renderWeeklySessionGroup(elements.weeklyUndatedGroup, elements.weeklyUndatedList, lists.undated);
+}
+
+function renderWeeklySessionButton(today = dateKey()) {
+  const isSessionDay = dateFromKey(today).getDay() === weeklySessionDayValue();
+  const completed = settingsMap.get(WEEKLY_SESSION_COMPLETED_SETTING) === today;
+  elements.weeklySessionSection.hidden = !isSessionDay || completed;
+  if (!isSessionDay || completed) return;
+  const lists = weeklySessionLists(today);
+  const count = Object.values(lists).reduce((sum, list) => sum + list.length, 0);
+  elements.weeklySessionButtonStatus.textContent = count
+    ? `${formatNumber(count)} عناصر للمراجعة`
+    : 'لا عناصر معلقة؛ ثبّت عادة الجلسة';
+}
+
+function openWeeklySessionDialog() {
+  renderWeeklySessionDialog();
+  if (!elements.weeklySessionDialog.open) elements.weeklySessionDialog.showModal();
+}
+
+async function completeWeeklySession() {
+  const today = dateKey();
+  await putSetting(WEEKLY_SESSION_COMPLETED_SETTING, today);
+  elements.weeklySessionDialog.close();
+  renderToday();
+  showToast('اكتملت جلسة مرساة.');
 }
 
 function dayClosingSummary(day) {
@@ -1121,8 +1552,10 @@ function dayClosingSummary(day) {
   const completedIds = new Set();
   entries.forEach(entry => {
     storedEntryEventLog(entry).forEach(event => {
-      if ((validDateKey(event.localDate) || dateKey(event.at)) !== day) return;
-      if (event.type === 'path_changed' && event.from === 'consider' && event.to !== 'consider'
+      if (recordedOperationalDate(event.localDate, event.localHour, event.at) !== day) return;
+      if (event.type === 'path_changed'
+          && ['consider', 'untriaged'].includes(event.from)
+          && !['consider', 'untriaged'].includes(event.to)
           && !['consider', 'untriaged'].includes(entry.path)) {
         resolvedIds.add(entry.id);
       }
@@ -1136,8 +1569,6 @@ function dayClosingSummary(day) {
     const aTop = a.topTodayDate === day ? 1 : 0;
     const bTop = b.topTodayDate === day ? 1 : 0;
     if (aTop !== bTop) return bTop - aTop;
-    if (a.dueDate && b.dueDate && a.dueDate !== b.dueDate) return a.dueDate.localeCompare(b.dueDate);
-    if (a.dueDate !== b.dueDate) return a.dueDate ? -1 : 1;
     return new Date(a.createdAt) - new Date(b.createdAt);
   });
   return {
@@ -1304,9 +1735,7 @@ function entrySearchText(entry) {
     entry.person,
     PATHS[entry.path],
     STATUSES[entry.status],
-    formatDate(entry.createdAt),
-    entry.dueDate,
-    entry.followUpDate
+    formatDate(entry.createdAt)
   ].filter(Boolean).join(' '));
 }
 
@@ -1316,7 +1745,7 @@ function renderEntries() {
   const terms = normalizeArabic(query).split(' ').filter(Boolean);
   const from = validDateKey(elements.entriesDateFrom.value) || '';
   const to = validDateKey(elements.entriesDateTo.value) || '';
-  const sort = ['newest', 'oldest', 'due'].includes(elements.entriesSort.value)
+  const sort = ['newest', 'oldest'].includes(elements.entriesSort.value)
     ? elements.entriesSort.value
     : 'newest';
 
@@ -1366,8 +1795,21 @@ function hasCompletePathHistory(entry) {
   return Boolean(first && validIso(first.at) === validIso(entry.createdAt));
 }
 
+function recordedOperationalDate(localDate, localHour, fallbackTimestamp) {
+  const key = validDateKey(localDate);
+  const hour = Number(localHour);
+  if (key && Number.isInteger(hour) && hour >= 0 && hour <= 23) {
+    return hour < DAY_START_HOUR ? shiftDateKey(key, -1) : key;
+  }
+  return key || dateKey(fallbackTimestamp);
+}
+
 function pathEventDate(event) {
-  return validDateKey(event?.localDate) || dateKey(event?.at);
+  const offset = Number(event?.utcOffsetMinutes);
+  const hour = Number.isInteger(offset) && offset >= -840 && offset <= 840 && validIso(event?.at)
+    ? localPartsAtOffset(event.at, offset).hour
+    : null;
+  return recordedOperationalDate(event?.localDate, hour, event?.at);
 }
 
 function renderAnalysisSummary() {
@@ -1380,7 +1822,7 @@ function renderAnalysisSummary() {
     if (hasCompletePathHistory(entry)) {
       return pathLogFor(entry).some(event => {
         const eventDay = pathEventDate(event);
-        return event.path === 'consider' && eventDay >= cutoff && eventDay <= today;
+        return ['untriaged', 'consider'].includes(event.path) && eventDay >= cutoff && eventDay <= today;
       });
     }
     const createdDay = entryDate(entry);
@@ -1425,10 +1867,11 @@ function renderPathBacklog() {
   activeEntries.forEach(entry => {
     if (hasOwn(counts, entry.path)) counts[entry.path] += 1;
   });
+  const routedCount = Object.values(counts).reduce((sum, count) => sum + count, 0);
   const maxCount = Math.max(1, ...Object.values(counts));
-  elements.pathBacklogSummary.textContent = activeEntries.length
+  elements.pathBacklogSummary.textContent = routedCount
     ? `للنظر ${counts.consider} · بانتظار ${counts.waiting}`
-    : 'لا إدخالات';
+    : 'لا إدخالات في المسارات';
 
   const oldThresholds = { consider: 30, waiting: 14 };
   const rows = Object.entries(ROUTABLE_PATHS).map(([path, label]) => {
@@ -1577,9 +2020,10 @@ function renderDecisionWindow(today) {
   const hourly = Array(24).fill(0);
   let total = 0;
   entries.forEach(entry => {
+    if (entry.status === 'trash') return;
     storedEntryEventLog(entry).forEach(event => {
       if (!isDocumentedDecisionEvent(event)) return;
-      const eventDay = validDateKey(event.localDate) || dateKey(event.at);
+      const eventDay = recordedOperationalDate(event.localDate, event.localHour, event.at);
       const hour = Number(event.localHour);
       if (eventDay < cutoff || eventDay > today || !Number.isInteger(hour) || hour < 0 || hour > 23) return;
       hourly[hour] += 1;
@@ -1654,19 +2098,11 @@ function sortEntriesResults(list, sort) {
   if (sort === 'oldest') {
     return sorted.sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
   }
-  if (sort === 'due') {
-    return sorted.sort((a, b) => {
-      const aDue = validDateKey(a.dueDate) || '9999-12-31';
-      const bDue = validDateKey(b.dueDate) || '9999-12-31';
-      return aDue.localeCompare(bDue) || new Date(b.createdAt) - new Date(a.createdAt);
-    });
-  }
   return sorted.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
 }
 
 function entriesSortLabel(sort) {
   if (sort === 'oldest') return 'الأقدم';
-  if (sort === 'due') return 'أقرب موعد';
   return 'الأحدث';
 }
 
@@ -1891,6 +2327,7 @@ function createArchivedClosure(closure) {
 }
 
 function renderEntryList(container, list, emptyMessage) {
+  releaseObservedAttachmentImages(container);
   if (!list.length) {
     container.replaceChildren(emptyNode(emptyMessage));
     return;
@@ -1925,9 +2362,6 @@ function createEntryCard(entry) {
   if (entry.status !== 'open') {
     meta.append(iconChip('check', STATUSES[entry.status] || entry.status, `status-${entry.status}`));
   }
-  if (entry.dueDate) {
-    meta.append(chip(`⏱ ${relativeDayLabel(entry.dueDate)}`, entry.dueDate < dateKey() ? 'overdue' : ''));
-  }
   if (entry.topTodayDate) meta.append(iconChip('starFilled', 'ضمن أهم المهام', 'top-marker'));
 
   const imageRow = createAttachmentRow(entry.id);
@@ -1941,7 +2375,7 @@ function createEntryCard(entry) {
 }
 
 function entryEventDateTime(event) {
-  const key = validDateKey(event?.localDate) || dateKey(event?.at);
+  const key = validDateKey(event?.localDate) || civilDateKey(event?.at);
   const hour = Number.isInteger(event?.localHour) ? event.localHour : new Date(event?.at).getHours();
   const minute = Number.isInteger(event?.localMinute) ? event.localMinute : new Date(event?.at).getMinutes();
   return `${formatDateKey(key)} · ${pad(hour)}:${pad(minute)}`;
@@ -1960,14 +2394,23 @@ function entryEventLabel(event) {
       return event.to && PATHS[event.to]
         ? `أُنشئت في «${PATHS[event.to]}»`
         : 'أُنشئت الالتقاطة';
-    case 'path_changed':
-      return `تغيّر المسار من «${PATHS[event.from] || event.from}» إلى «${PATHS[event.to] || event.to}»`;
+    case 'path_changed': {
+      const from = PATHS[event.from] || '';
+      const to = PATHS[event.to] || '';
+      if (!from && to) return `حُدّد المسار «${to}»`;
+      if (from && !to) return `أُزيل المسار «${from}»`;
+      return `تغيّر المسار من «${from || event.from}» إلى «${to || event.to}»`;
+    }
     case 'status_changed':
       return `تغيّرت الحالة من «${STATUSES[event.from] || event.from}» إلى «${STATUSES[event.to] || event.to}»`;
     case 'text_updated':
       return 'عُدّل نص الالتقاطة';
     case 'due_date_changed':
       return event.to ? `حُدّد موعد التنفيذ: ${formatDateKey(event.to)}` : 'أُزيل موعد التنفيذ';
+    case 'return_date_changed':
+      return event.to ? `حُدّد تاريخ العودة: ${formatDateKey(event.to)}` : 'أُزيل تاريخ العودة';
+    case 'return_deferred':
+      return event.to ? `أُجّلت العودة إلى ${formatDateKey(event.to)}` : 'أُجّلت العودة';
     case 'top_added':
       return `أُضيفت إلى أهم يوم ${formatDateKey(event.to)}`;
     case 'top_removed':
@@ -1998,13 +2441,17 @@ function renderEntryDetails(entryId) {
     uiIcon('hourglass'),
     document.createTextNode(ageDaysLabel(entryAgeDays(entry)))
   );
-  elements.entryDetailsPath.className = `path-${entry.path}`;
-  elements.entryDetailsPath.replaceChildren(
-    pathIcon(entry.path),
-    document.createTextNode(PATHS[entry.path] || entry.path)
-  );
+  const pathFact = elements.entryDetailsPath.closest('.entry-details-fact');
+  const hasPath = entry.path !== 'untriaged' && Boolean(PATHS[entry.path]);
+  pathFact.hidden = !hasPath;
+  elements.entryDetailsPath.className = hasPath ? `path-${entry.path}` : '';
+  elements.entryDetailsPath.replaceChildren(...(hasPath
+    ? [pathIcon(entry.path), document.createTextNode(PATHS[entry.path])]
+    : []));
+  elements.entryDetailsShare.hidden = entry.status === 'trash';
   elements.entryDetailsEdit.hidden = entry.status === 'trash';
 
+  releaseObservedAttachmentImages(elements.entryDetailsAttachments);
   const attachmentRow = createAttachmentRow(entry.id);
   if (attachmentRow) {
     const heading = document.createElement('h3');
@@ -2071,6 +2518,9 @@ const UI_ICON_PATHS = Object.freeze({
   return: [
     'M9 14 4 9l5-5M4 9h10a6 6 0 0 1 6 6v2'
   ],
+  share: [
+    'M12 16V3M7 8l5-5 5 5M5 13v7h14v-7'
+  ],
   pathUntriaged: [
     'm12 3 9 9-9 9-9-9z'
   ],
@@ -2119,12 +2569,13 @@ function createPathMenu(entry) {
   details.className = 'path-menu';
   const summary = document.createElement('summary');
   summary.className = `chip path-${entry.path}`;
-  const currentLabel = PATHS[entry.path] || entry.path;
+  const hasPath = entry.path !== 'untriaged' && Boolean(PATHS[entry.path]);
+  const currentLabel = hasPath ? PATHS[entry.path] : 'اختيار مسار';
   const currentIcon = pathIcon(entry.path);
   currentIcon.classList.add('path-menu-icon');
   summary.append(currentIcon);
   summary.title = currentLabel;
-  summary.setAttribute('aria-label', `تغيير المسار الحالي: ${currentLabel}`);
+  summary.setAttribute('aria-label', hasPath ? `تغيير المسار الحالي: ${currentLabel}` : currentLabel);
 
   const options = document.createElement('div');
   options.className = 'path-menu-options';
@@ -2220,6 +2671,122 @@ function temporaryAttachmentUrl(attachment) {
   return URL.createObjectURL(attachment.blob);
 }
 
+function setAttachmentImageState(img, state) {
+  img.dataset.loadState = state;
+  const open = img.closest('.attachment-open');
+  if (!open) return;
+  const retry = open.querySelector('.attachment-retry');
+  if (retry) retry.hidden = state !== 'error';
+  open.classList.toggle('is-load-error', state === 'error');
+  open.setAttribute('aria-label', state === 'error'
+    ? `تعذر تحميل ${img.alt}. اضغط لإعادة المحاولة.`
+    : open.dataset.openLabel);
+}
+
+function setRevokingImageSource(img, attachment) {
+  const url = temporaryAttachmentUrl(attachment);
+  let revoked = false;
+  const revoke = () => {
+    if (revoked) return;
+    revoked = true;
+    URL.revokeObjectURL(url);
+  };
+  const fallback = setTimeout(revoke, 60_000);
+  const settled = state => {
+    clearTimeout(fallback);
+    setTimeout(revoke, 1000);
+    setAttachmentImageState(img, state);
+  };
+  const onLoad = () => {
+    img.removeEventListener('error', onError);
+    settled('loaded');
+  };
+  const onError = () => {
+    img.removeEventListener('load', onLoad);
+    settled('error');
+  };
+  img.addEventListener('load', onLoad, { once: true });
+  img.addEventListener('error', onError, { once: true });
+  setAttachmentImageState(img, 'loading');
+  img.src = url;
+}
+
+async function loadAttachmentImage(img, attachment) {
+  try {
+    const loaded = await attachmentWithBlob(attachment);
+    if (!img.isConnected) return;
+    setRevokingImageSource(img, loaded);
+  } catch (error) {
+    if (img.isConnected) setAttachmentImageState(img, 'error');
+    console.warn('تعذر تحميل مصغّر المرفق:', error);
+  }
+}
+
+function takeObservedAttachmentImage(img) {
+  attachmentImageObserver?.unobserve(img);
+  observedAttachmentImages.delete(img);
+  if (img.__mersahAttachmentFallback) clearTimeout(img.__mersahAttachmentFallback);
+  const attachment = img.__mersahAttachment;
+  delete img.__mersahAttachment;
+  delete img.__mersahAttachmentFallback;
+  return attachment;
+}
+
+function loadObservedAttachmentImage(img) {
+  const attachment = takeObservedAttachmentImage(img);
+  if (attachment) loadAttachmentImage(img, attachment);
+}
+
+function attachmentImageNearViewport(img) {
+  if (!img.isConnected || document.visibilityState === 'hidden' || !img.getClientRects().length) return false;
+  const rect = img.getBoundingClientRect();
+  const margin = 160;
+  return rect.width > 0 && rect.height > 0
+    && rect.bottom >= -margin && rect.top <= window.innerHeight + margin
+    && rect.right >= -margin && rect.left <= window.innerWidth + margin;
+}
+
+function checkObservedAttachmentImages() {
+  attachmentImageFallbackFrame = 0;
+  observedAttachmentImages.forEach(img => {
+    if (!img.isConnected) {
+      takeObservedAttachmentImage(img);
+    } else if (attachmentImageNearViewport(img)) {
+      loadObservedAttachmentImage(img);
+    }
+  });
+}
+
+function queueAttachmentImageFallbackCheck() {
+  if (attachmentImageFallbackFrame) return;
+  attachmentImageFallbackFrame = requestAnimationFrame(checkObservedAttachmentImages);
+}
+
+function observeAttachmentImage(img, attachment) {
+  if (!('IntersectionObserver' in window)) {
+    loadAttachmentImage(img, attachment);
+    return;
+  }
+  if (!attachmentImageObserver) {
+    attachmentImageObserver = new IntersectionObserver(records => {
+      records.forEach(record => {
+        if (!record.isIntersecting) return;
+        loadObservedAttachmentImage(record.target);
+      });
+    }, { rootMargin: '160px 0px' });
+  }
+  setAttachmentImageState(img, 'waiting');
+  img.__mersahAttachment = attachment;
+  img.__mersahAttachmentFallback = setTimeout(queueAttachmentImageFallbackCheck, 2000);
+  observedAttachmentImages.add(img);
+  attachmentImageObserver.observe(img);
+}
+
+function releaseObservedAttachmentImages(root) {
+  if (!root) return;
+  root.querySelectorAll('img').forEach(img => takeObservedAttachmentImage(img));
+}
+
 function createAttachmentTile(attachment, { temporary = false, removeHandler = null } = {}) {
   const wrap = document.createElement('div');
   const image = isPreviewableImage(attachment);
@@ -2232,16 +2799,28 @@ function createAttachmentTile(attachment, { temporary = false, removeHandler = n
     open.setAttribute('aria-label', `عرض الصورة ${safeAttachmentName(attachment.name, 'صورة')}`);
     const img = document.createElement('img');
     img.alt = safeAttachmentName(attachment.name, 'صورة مرفقة');
+    img.loading = 'lazy';
+    const retry = document.createElement('span');
+    retry.className = 'attachment-retry';
+    retry.hidden = true;
+    retry.title = 'إعادة تحميل الصورة';
+    retry.setAttribute('aria-hidden', 'true');
+    retry.append(uiIcon('reopen'));
+    open.dataset.openLabel = `عرض الصورة ${safeAttachmentName(attachment.name, 'صورة')}`;
+    open.append(img, retry);
     if (temporary) {
-      const url = temporaryAttachmentUrl(attachment);
-      img.src = url;
-      img.addEventListener('load', () => setTimeout(() => URL.revokeObjectURL(url), 1000), { once: true });
-      img.addEventListener('error', () => URL.revokeObjectURL(url), { once: true });
+      setRevokingImageSource(img, attachment);
     } else {
-      img.src = attachmentUrl(attachment);
+      observeAttachmentImage(img, attachment);
     }
-    open.addEventListener('click', () => openImageViewer(attachment, { temporary }));
-    open.append(img);
+    open.addEventListener('click', () => {
+      if (img.dataset.loadState === 'error') {
+        if (temporary) setRevokingImageSource(img, attachment);
+        else loadAttachmentImage(img, attachment);
+        return;
+      }
+      openImageViewer(attachment, { temporary });
+    });
     wrap.append(open);
   } else {
     const open = document.createElement('button');
@@ -2261,6 +2840,7 @@ function createAttachmentTile(attachment, { temporary = false, removeHandler = n
     nameNode.textContent = name;
     const size = document.createElement('span');
     size.className = 'attachment-file-size';
+    size.dir = 'ltr';
     size.textContent = formatBytes(Number(attachment.size || attachment.blob?.size || 0));
     copy.append(nameNode, size);
     const action = document.createElement('span');
@@ -2295,25 +2875,22 @@ function createAttachmentTile(attachment, { temporary = false, removeHandler = n
   return wrap;
 }
 
-function attachmentUrl(attachment) {
-  const signature = `${attachment.size || attachment.blob?.size || 0}:${attachment.createdAt || ''}`;
-  const cached = attachmentUrlCache.get(attachment.id);
-  if (cached?.signature === signature) return cached.url;
-  if (cached) URL.revokeObjectURL(cached.url);
-  const url = URL.createObjectURL(attachment.blob);
-  attachmentUrlCache.set(attachment.id, { signature, url });
-  return url;
-}
-
-function openImageViewer(attachment, { temporary = false } = {}) {
+async function openImageViewer(attachment, { temporary = false } = {}) {
   if (!isPreviewableImage(attachment)) return;
+  let loaded;
+  try {
+    loaded = temporary ? attachment : await attachmentWithBlob(attachment);
+  } catch (error) {
+    showToast('تعذر قراءة الصورة المرفقة.');
+    return;
+  }
   if (activeViewerTemporaryUrl) URL.revokeObjectURL(activeViewerTemporaryUrl);
-  activeViewerAttachment = attachment;
-  activeViewerTemporaryUrl = temporary ? temporaryAttachmentUrl(attachment) : null;
-  elements.attachmentViewerImage.src = activeViewerTemporaryUrl || attachmentUrl(attachment);
-  elements.attachmentViewerImage.alt = safeAttachmentName(attachment.name, 'صورة مرفقة');
+  activeViewerAttachment = loaded;
+  activeViewerTemporaryUrl = temporaryAttachmentUrl(loaded);
+  elements.attachmentViewerImage.src = activeViewerTemporaryUrl;
+  elements.attachmentViewerImage.alt = safeAttachmentName(loaded.name, 'صورة مرفقة');
   elements.attachmentViewerImage.classList.remove('zoomed');
-  elements.attachmentViewerTitle.textContent = safeAttachmentName(attachment.name, 'صورة');
+  elements.attachmentViewerTitle.textContent = safeAttachmentName(loaded.name, 'صورة');
   elements.attachmentViewerZoom.textContent = '+';
   elements.attachmentViewerZoom.setAttribute('aria-label', 'تكبير الصورة');
   elements.attachmentViewerZoom.title = 'تكبير';
@@ -2343,12 +2920,13 @@ function toggleImageViewerZoom() {
 }
 
 async function openTextFileViewer(attachment) {
-  if (!isPreviewableText(attachment) || !(attachment?.blob instanceof Blob)) return;
-  const name = safeAttachmentName(attachment.name);
-  const truncated = attachment.blob.size > MAX_TEXT_PREVIEW_BYTES;
+  if (!isPreviewableText(attachment)) return;
   try {
-    const text = await attachment.blob.slice(0, MAX_TEXT_PREVIEW_BYTES).text();
-    activeFileViewerAttachment = attachment;
+    const loaded = await attachmentWithBlob(attachment);
+    const name = safeAttachmentName(loaded.name);
+    const truncated = loaded.blob.size > MAX_TEXT_PREVIEW_BYTES;
+    const text = await loaded.blob.slice(0, MAX_TEXT_PREVIEW_BYTES).text();
+    activeFileViewerAttachment = loaded;
     elements.fileViewerTitle.textContent = name;
     elements.fileViewerText.textContent = text || 'الملف فارغ.';
     elements.fileViewerNote.textContent = truncated
@@ -2373,13 +2951,16 @@ function resetTextFileViewer() {
 }
 
 async function shareOrDownloadAttachment(attachment) {
-  if (!(attachment?.blob instanceof Blob)) {
+  let loaded;
+  try {
+    loaded = await attachmentWithBlob(attachment);
+  } catch (error) {
     showToast('تعذر قراءة المرفق.');
     return;
   }
-  const name = safeAttachmentName(attachment.name);
-  const type = normalizedAttachmentType(attachment.type || attachment.blob.type);
-  const file = new File([attachment.blob], name, { type });
+  const name = safeAttachmentName(loaded.name);
+  const type = normalizedAttachmentType(loaded.type || loaded.blob.type);
+  const file = new File([loaded.blob], name, { type });
   try {
     if (navigator.share && navigator.canShare?.({ files: [file] })) {
       await navigator.share({ files: [file], title: name });
@@ -2389,7 +2970,7 @@ async function shareOrDownloadAttachment(attachment) {
     if (error?.name === 'AbortError') return;
     console.warn('تعذرت مشاركة المرفق، سيُنزّل بدلًا من ذلك:', error);
   }
-  const downloadBlob = new Blob([attachment.blob], { type: 'application/octet-stream' });
+  const downloadBlob = new Blob([loaded.blob], { type: 'application/octet-stream' });
   const url = URL.createObjectURL(downloadBlob);
   const anchor = document.createElement('a');
   anchor.href = url;
@@ -2402,20 +2983,112 @@ async function shareOrDownloadAttachment(attachment) {
   showToast('بدأ تنزيل المرفق.');
 }
 
-function pruneAttachmentUrlCache() {
-  const liveIds = new Set(attachments.map(attachment => attachment.id));
-  attachmentUrlCache.forEach((cached, id) => {
-    if (liveIds.has(id)) return;
-    URL.revokeObjectURL(cached.url);
-    attachmentUrlCache.delete(id);
-  });
+function entryTextForSharing(entry) {
+  return clampString(entry?.text, MAX_TEXT_LENGTH).trim();
+}
+
+function openEntryShareDialog(entryId) {
+  const entry = entries.find(item => item.id === entryId && item.status !== 'trash');
+  if (!entry) return;
+  const text = entryTextForSharing(entry);
+  const attachmentCount = attachmentsFor(entry.id).length;
+  activeShareEntryId = entry.id;
+  elements.entrySharePreview.textContent = text || attachmentOnlyLabel(entry);
+  elements.entryShareSystemButton.disabled = !text;
+  elements.entryShareThingsButton.disabled = !text;
+  elements.entryShareThingsButton.dataset.url = text ? thingsAddUrl(text) : '';
+  elements.entryCopyTextButton.disabled = !text;
+  if (!text) {
+    elements.entryShareNote.textContent = 'لا يوجد نص لنسخه. شارك المرفق من داخل الالتقاطة.';
+    elements.entryShareNote.hidden = false;
+  } else if (attachmentCount) {
+    elements.entryShareNote.textContent = 'سيُنقل النص فقط؛ شارك المرفقات كلًا على حدة.';
+    elements.entryShareNote.hidden = false;
+  } else {
+    elements.entryShareNote.textContent = '';
+    elements.entryShareNote.hidden = true;
+  }
+  elements.entryShareDialog.showModal();
+  elements.entryShareSystemButton.focus();
+}
+
+async function copyPlainText(text) {
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(text);
+      return true;
+    }
+  } catch (error) {
+    console.warn('تعذر استخدام الحافظة الحديثة، ستُجرّب الطريقة الاحتياطية:', error);
+  }
+  const textarea = document.createElement('textarea');
+  textarea.value = text;
+  textarea.readOnly = true;
+  textarea.style.position = 'fixed';
+  textarea.style.opacity = '0';
+  document.body.append(textarea);
+  textarea.select();
+  const copied = document.execCommand('copy');
+  textarea.remove();
+  return copied;
+}
+
+async function copyActiveEntryText() {
+  const entry = entries.find(item => item.id === activeShareEntryId);
+  const text = entryTextForSharing(entry);
+  if (!text) return;
+  const copied = await copyPlainText(text);
+  if (copied) {
+    elements.entryShareDialog.close();
+    showToast('نُسخ النص.');
+  } else {
+    showToast('تعذر نسخ النص.');
+  }
+}
+
+async function shareActiveEntryText() {
+  const entry = entries.find(item => item.id === activeShareEntryId);
+  const text = entryTextForSharing(entry);
+  if (!text) return;
+  if (navigator.share) {
+    try {
+      await navigator.share({ title: 'مرساة', text });
+      elements.entryShareDialog.close();
+      return;
+    } catch (error) {
+      if (error?.name === 'AbortError') return;
+      console.warn('تعذرت مشاركة النص، سيُنسخ بدلًا من ذلك:', error);
+    }
+  }
+  await copyActiveEntryText();
+}
+
+function thingsAddUrl(text) {
+  const clean = text.trim();
+  const lineBreak = clean.indexOf('\n');
+  let title = lineBreak >= 0 ? clean.slice(0, lineBreak).trim() : clean;
+  let notes = lineBreak >= 0 ? clean.slice(lineBreak + 1).trim() : '';
+  if (title.length > 240) {
+    notes = [title.slice(240), notes].filter(Boolean).join('\n');
+    title = title.slice(0, 240);
+  }
+  const params = new URLSearchParams({ title, reveal: 'true' });
+  if (notes) params.set('notes', notes);
+  return `things:///add?${params.toString()}`;
+}
+
+function sendActiveEntryToThings() {
+  const entry = entries.find(item => item.id === activeShareEntryId);
+  const text = entryTextForSharing(entry);
+  if (!text) return;
+  const url = elements.entryShareThingsButton.dataset.url || thingsAddUrl(text);
+  elements.entryShareDialog.close();
+  window.location.href = url;
 }
 
 function appendEntryActions(container, entry) {
   if (entry.status === 'open') {
-    if (entry.path === 'waiting') {
-      container.append(actionButton('عاد إليّ', () => updateEntry(entry.id, { path: 'do' }), 'primary', 'return'));
-    } else if (entry.type === 'task' || entry.path === 'do') {
+    if (entry.type === 'task' || entry.path === 'do') {
       container.append(actionButton('إكمال', () => setEntryStatus(entry.id, 'done'), 'primary', 'check'));
     } else if (entry.path === 'consider') {
       container.append(actionButton('إغلاق', () => setEntryStatus(entry.id, 'closed'), '', 'check'));
@@ -2434,6 +3107,7 @@ function appendEntryActions(container, entry) {
   }
 
   container.append(
+    actionButton('نسخ إلى تطبيق', () => openEntryShareDialog(entry.id), '', 'share'),
     actionButton('تحرير', () => openEditDialog(entry.id), '', 'edit'),
     actionButton('حذف', () => trashEntry(entry.id), 'danger', 'trash')
   );
@@ -2490,7 +3164,9 @@ async function createEntry(data, attachmentDrafts = []) {
     context: canonicalFromExisting(data.context, 'context'),
     person: canonicalFromExisting(data.person, 'person'),
     dueDate: validDateKey(data.dueDate),
-    followUpDate: validDateKey(data.followUpDate),
+    followUpDate: data.followUpDate === undefined
+      ? resolveReturnSchedule(RETURN_SCHEDULES[0]).date
+      : validDateKey(data.followUpDate),
     topTodayDate: validDateKey(topDate),
     legacy: data.legacy || { source: null, state: null }
   };
@@ -2523,21 +3199,24 @@ async function createEntry(data, attachmentDrafts = []) {
     ? dailyTopRecordForEntries(entry.topTodayDate, nextEntries, now)
     : null;
   await runAtomicWrite(
-    ['entries', 'attachments', ...(dailyRecord ? ['daily'] : [])],
+    ['entries', 'attachments', 'attachmentData', ...(dailyRecord ? ['daily'] : [])],
     (stores, track) => {
       track(stores.entries.put(entry));
-      attachmentRows.forEach(attachment => track(stores.attachments.put(attachment)));
+      attachmentRows.forEach(attachment => {
+        track(stores.attachments.put(attachmentMetadata(attachment)));
+        track(stores.attachmentData.put(attachmentDataRecord(attachment)));
+      });
       if (dailyRecord) track(stores.daily.put(dailyRecord));
     }
   );
   entries = nextEntries;
-  attachments.push(...attachmentRows);
+  attachments.push(...attachmentRows.map(attachmentMetadata));
   if (dailyRecord) upsertDailyRecords([dailyRecord]);
   refreshDataViews();
   return entry;
 }
 
-async function updateEntry(id, patch) {
+async function updateEntry(id, patch, { extraEvent = null } = {}) {
   const current = entries.find(entry => entry.id === id);
   if (!current) return null;
   const nextTopDate = patch.topTodayDate === undefined ? current.topTodayDate : validDateKey(patch.topTodayDate);
@@ -2545,7 +3224,14 @@ async function updateEntry(id, patch) {
     showToast('لا يمكن إضافة مهمة رابعة إلى أهم اليوم.');
     return null;
   }
-  const updated = buildUpdatedEntry(current, patch);
+  let updated = buildUpdatedEntry(current, patch);
+  if (extraEvent?.type && ENTRY_EVENT_TYPES.has(extraEvent.type)) {
+    updated = appendEventsToEntry(updated, [createEntryEvent(
+      extraEvent.type,
+      updated.updatedAt,
+      extraEvent.details || {}
+    )], updated);
+  }
   await persistEntryUpdate(current, updated);
   refreshDataViews();
   return updated;
@@ -2586,19 +3272,25 @@ async function persistEntryUpdate(current, updated, { addedAttachments = [], rem
   const dailyUpdates = [...new Set(datesToSync)]
     .map(day => dailyTopRecordForEntries(day, nextEntries, updated.updatedAt));
   const needsAttachments = addedAttachments.length > 0 || removedAttachmentIds.length > 0;
-  const storeNames = ['entries', ...(dailyUpdates.length ? ['daily'] : []), ...(needsAttachments ? ['attachments'] : [])];
+  const storeNames = ['entries', ...(dailyUpdates.length ? ['daily'] : []), ...(needsAttachments ? ['attachments', 'attachmentData'] : [])];
   await runAtomicWrite(storeNames, (stores, track) => {
     track(stores.entries.put(updated));
     dailyUpdates.forEach(record => track(stores.daily.put(record)));
-    removedAttachmentIds.forEach(id => track(stores.attachments.delete(id)));
-    addedAttachments.forEach(attachment => track(stores.attachments.put(attachment)));
+    removedAttachmentIds.forEach(id => {
+      track(stores.attachments.delete(id));
+      track(stores.attachmentData.delete(id));
+    });
+    addedAttachments.forEach(attachment => {
+      track(stores.attachments.put(attachmentMetadata(attachment)));
+      track(stores.attachmentData.put(attachmentDataRecord(attachment)));
+    });
   });
   entries = nextEntries;
   if (needsAttachments) {
     const removedIds = new Set(removedAttachmentIds);
     attachments = attachments
       .filter(attachment => !removedIds.has(attachment.id))
-      .concat(addedAttachments);
+      .concat(addedAttachments.map(attachmentMetadata));
   }
   upsertDailyRecords(dailyUpdates);
 }
@@ -2610,10 +3302,31 @@ async function setEntryStatus(id, status) {
 async function setTopToday(id, day) {
   const entry = entries.find(item => item.id === id);
   if (!entry) return;
+  // «أهم اليوم» مرآة للأولوية فقط؛ تاريخ العودة يبقى حتى يُحسم أو يُؤجّل صراحةً.
   const patch = { topTodayDate: day };
-  if (day && entry.path === 'untriaged') patch.path = 'do';
   if (day && entry.type !== 'task') patch.type = 'task';
   await updateEntry(id, patch);
+}
+
+async function scheduleEntryReturn(entryId, scheduleKey, { deferred = false } = {}) {
+  const current = entries.find(entry => entry.id === entryId);
+  const schedule = RETURN_SCHEDULES.find(item => item.key === scheduleKey);
+  if (!current || !schedule) return null;
+  const resolved = resolveReturnSchedule(schedule, entryId, dateKey(), { enforceCapacity: !deferred });
+  const updated = await updateEntry(entryId, {
+    followUpDate: resolved.date,
+    path: resolved.path
+  }, deferred ? {
+    extraEvent: {
+      type: 'return_deferred',
+      details: { from: current.followUpDate, to: resolved.date }
+    }
+  } : {});
+  if (!updated) return null;
+  showToast(resolved.shifted
+    ? `اليوم المختار ممتلئ؛ نُقلت العودة إلى جلسة ${formatDateKey(resolved.date)}.`
+    : `تعود الالتقاطة ${relativeDayLabel(resolved.date)} في «${PATHS[resolved.path]}».`);
+  return updated;
 }
 
 // ورقة تأكيد سفلية تتّسق مع الواجهة،
@@ -2847,13 +3560,29 @@ function openCaptureDialog() {
 function resetCaptureForm() {
   captureDraftAttachments = [];
   elements.captureForm.reset();
+  elements.captureStatus.textContent = '';
+  elements.captureStatus.classList.remove('is-pending');
+  elements.captureStatus.hidden = true;
+  elements.saveCaptureButton.disabled = false;
   renderAttachmentPreview(elements.capturePreview, captureDraftAttachments, removeCaptureDraftAttachment);
 }
 
 async function handleCaptureSubmit(event) {
   event.preventDefault();
+  if (elements.saveCaptureButton.disabled) return;
+  if (!elements.captureText.value.trim() && !captureDraftAttachments.length) {
+    elements.captureStatus.textContent = 'أضف نصًا أو مرفقًا أولًا.';
+    elements.captureStatus.classList.remove('is-pending');
+    elements.captureStatus.hidden = false;
+    return;
+  }
+  elements.saveCaptureButton.disabled = true;
+  elements.captureStatus.textContent = 'جارٍ الحفظ…';
+  elements.captureStatus.classList.add('is-pending');
+  elements.captureStatus.hidden = false;
   let entry;
   try {
+    const defaultReturn = resolveReturnSchedule(RETURN_SCHEDULES[0]);
     entry = await createEntry({
       text: elements.captureText.value,
       type: 'note',
@@ -2862,19 +3591,27 @@ async function handleCaptureSubmit(event) {
       context: '',
       person: '',
       dueDate: null,
-      followUpDate: null,
+      followUpDate: defaultReturn.date,
       topTodayDate: null
     }, captureDraftAttachments);
   } catch (error) {
+    elements.captureStatus.textContent = storageFailureMessage(error, 'حفظ الالتقاط');
+    elements.captureStatus.classList.remove('is-pending');
+    elements.saveCaptureButton.disabled = false;
     reportStorageFailure(error, 'حفظ الالتقاط');
     return;
   }
-  if (!entry) return;
+  if (!entry) {
+    elements.captureStatus.textContent = 'تعذر حفظ الالتقاط. تحقق من النص أو المرفق.';
+    elements.captureStatus.classList.remove('is-pending');
+    elements.saveCaptureButton.disabled = false;
+    elements.captureStatus.hidden = false;
+    return;
+  }
+  elements.captureStatus.textContent = '';
+  elements.captureStatus.hidden = true;
   elements.captureDialog.close();
-  showToast('تم الحفظ.', 'تراجع', async () => {
-    await deleteEntryCompletely(entry.id);
-    refreshDataViews();
-  }, 6000);
+  showReturnChoices(entry);
 }
 
 async function deleteEntryCompletely(entryId) {
@@ -2892,9 +3629,12 @@ async function deleteEntriesCompletely(entryIds) {
     .filter(attachment => ids.has(attachment.entryId))
     .map(attachment => attachment.id);
   await runAtomicWrite(
-    ['entries', 'attachments', ...(dailyUpdates.length ? ['daily'] : [])],
+    ['entries', 'attachments', 'attachmentData', ...(dailyUpdates.length ? ['daily'] : [])],
     (stores, track) => {
-      removedAttachmentIds.forEach(id => track(stores.attachments.delete(id)));
+      removedAttachmentIds.forEach(id => {
+        track(stores.attachments.delete(id));
+        track(stores.attachmentData.delete(id));
+      });
       removedEntries.forEach(entry => track(stores.entries.delete(entry.id)));
       dailyUpdates.forEach(record => track(stores.daily.put(record)));
     }
@@ -3023,6 +3763,7 @@ function canvasToBlob(canvas, type, quality) {
 }
 
 function renderAttachmentPreview(container, list, removeHandler) {
+  releaseObservedAttachmentImages(container);
   if (!list.length) {
     container.replaceChildren();
     return;
@@ -3065,12 +3806,12 @@ function openEditDialog(entryId) {
   elements.editText.value = entry.text || '';
   setEditTextUnlocked(false);
   const editPathOptions = entry.path === 'untriaged'
-    ? { untriaged: 'غير مفرز', ...ROUTABLE_PATH_OPTIONS }
+    ? { untriaged: 'اختر مسارًا', ...ROUTABLE_PATH_OPTIONS }
     : ROUTABLE_PATH_OPTIONS;
   fillSelect(elements.editPath, editPathOptions);
-  elements.editPath.value = hasOwn(editPathOptions, entry.path) ? entry.path : 'consider';
+  elements.editPath.value = hasOwn(editPathOptions, entry.path) ? entry.path : 'untriaged';
+  elements.editReturnDate.value = validDateKey(entry.followUpDate) || '';
   updateEditPathAgeHint(entry);
-  elements.editDueDate.value = entry.dueDate || '';
   elements.editEntryAge.querySelector('strong').textContent = ageDaysLabel(entryAgeDays(entry));
   elements.editTopToday.checked = entry.topTodayDate === dateKey();
   elements.editAttachmentsOptions.open = !entry.text && attachmentsFor(entry.id).length > 0;
@@ -3094,6 +3835,10 @@ function setEditTextUnlocked(unlocked, { focus = false } = {}) {
 
 function updateEditPathAgeHint(entry) {
   if (!entry) return;
+  if (elements.editPath.value === 'untriaged') {
+    elements.editPathAge.textContent = 'لم يُختر مسار بعد';
+    return;
+  }
   if (elements.editPath.value !== entry.path) {
     elements.editPathAge.textContent = 'المسار الجديد يبدأ عند الحفظ';
     return;
@@ -3105,6 +3850,7 @@ function updateEditPathAgeHint(entry) {
 }
 
 function renderExistingAttachments(entryId) {
+  releaseObservedAttachmentImages(elements.editExistingAttachments);
   const list = attachmentsFor(entryId).filter(item => !editRemovedAttachmentIds.has(item.id));
   if (!list.length) {
     elements.editExistingAttachments.replaceChildren(emptyNode('لا توجد مرفقات حالية.'));
@@ -3142,7 +3888,7 @@ async function handleEditSubmit(event) {
   let updated = buildUpdatedEntry(current, {
     text,
     path: elements.editPath.value,
-    dueDate: elements.editDueDate.value,
+    followUpDate: elements.editReturnDate.value || null,
     topTodayDate
   });
   const now = nowIso();
@@ -3201,12 +3947,26 @@ async function cleanOldTrash() {
 }
 
 function renderSettingsState() {
+  elements.weeklySessionDay.value = String(weeklySessionDayValue());
   const trash = trashEntries();
   elements.trashStatus.textContent = trash.length
     ? `${trash.length} عناصر؛ تُحذف نهائيًا بعد ${TRASH_RETENTION_DAYS} أيام.`
     : 'لا توجد عناصر محذوفة.';
   elements.restoreTrashButton.disabled = !trash.length;
   elements.emptyTrashButton.disabled = !trash.length;
+}
+
+async function saveWeeklySessionDay() {
+  const previous = weeklySessionDayValue();
+  const next = weeklySessionDayValue(elements.weeklySessionDay.value);
+  elements.weeklySessionDay.value = String(next);
+  try {
+    await putSetting('weeklySessionDay', next);
+    renderToday();
+  } catch (error) {
+    elements.weeklySessionDay.value = String(previous);
+    reportStorageFailure(error, 'حفظ يوم جلسة مرساة');
+  }
 }
 
 function trashEntries() {
@@ -3323,11 +4083,18 @@ async function restoreTrash() {
 }
 
 async function emptyTrash() {
-  const trash = entries.filter(entry => entry.status === 'trash');
+  const trash = trashEntries();
   if (!trash.length) return;
+  const attachmentCount = trash.reduce((total, entry) => total + attachmentsFor(entry.id).length, 0);
+  const previewItems = trash
+    .slice(0, 3)
+    .map(entry => entry.text || attachmentOnlyLabel(entry));
+  const remainingCount = trash.length - previewItems.length;
+  const preview = `${previewItems.join('\n')}${remainingCount > 0 ? `\nو${remainingCount} عناصر أخرى` : ''}`;
   const ok = await askConfirm({
-    title: 'إفراغ المحذوفات',
-    message: `سيُحذف ${trash.length} إدخالًا نهائيًا. لا يمكن التراجع.`,
+    title: 'إفراغ المحذوفات نهائيًا؟',
+    message: `سيُحذف كل ما في المحذوفات نهائيًا. الإدخالات: ${trash.length} · المرفقات: ${attachmentCount}. لا يمكن التراجع.`,
+    preview,
     accept: 'إفراغ نهائيًا'
   });
   if (!ok) return;
@@ -3540,7 +4307,8 @@ async function buildBackupFiles(stamp) {
   for (let index = 0; index < total; index += 1) {
     const attachmentRows = [];
     for (const attachment of groups[index]) {
-      attachmentRows.push(await attachmentExportMetadata(attachment));
+      const loaded = await attachmentWithBlob(attachment);
+      attachmentRows.push(await attachmentExportMetadata(loaded));
     }
     const payload = {
       schemaVersion: BACKUP_SCHEMA_VERSION,
@@ -3574,8 +4342,9 @@ async function buildBackupFiles(stamp) {
     const descriptor = partDescriptors[index];
     const attachmentRows = [];
     for (let attachmentIndex = 0; attachmentIndex < descriptor.group.length; attachmentIndex += 1) {
+      const loaded = await attachmentWithBlob(descriptor.group[attachmentIndex]);
       attachmentRows.push(await attachmentToExport(
-        descriptor.group[attachmentIndex],
+        loaded,
         descriptor.payload.attachments[attachmentIndex]
       ));
     }
@@ -4359,7 +5128,8 @@ function sanitizeImportedEventLog(value, createdAt, updatedAt, label) {
       }
       sanitized.from = event.from;
       sanitized.to = event.to;
-    } else if (event.type === 'due_date_changed' || event.type === 'top_added' || event.type === 'top_removed') {
+    } else if (event.type === 'due_date_changed' || event.type === 'return_date_changed'
+        || event.type === 'return_deferred' || event.type === 'top_added' || event.type === 'top_removed') {
       for (const field of ['from', 'to']) {
         if (event[field] == null || event[field] === '') {
           sanitized[field] = null;
@@ -4498,7 +5268,12 @@ function sanitizeImportedDayClosure(value, day, recordUpdatedAt) {
     throw new Error(`${label}: ترتيب أوقات الإغلاق غير صالح.`);
   }
   const local = sanitizeImportedCreatedLocal(value.local, closedAt, label);
-  if (!local || local.date !== day) throw new Error(`${label}: التاريخ المحلي لا يطابق اليوم.`);
+  const operationalDay = local
+    ? recordedOperationalDate(local.date, local.hour, closedAt)
+    : null;
+  if (!local || (local.date !== day && operationalDay !== day)) {
+    throw new Error(`${label}: التاريخ المحلي لا يطابق اليوم.`);
+  }
   if (!value.summary || typeof value.summary !== 'object' || Array.isArray(value.summary)) {
     throw new Error(`${label}: الملخص غير صالح.`);
   }
@@ -4716,22 +5491,42 @@ function switchView(name) {
   }
 }
 
-function showToast(message, actionLabel = '', action = null, duration = 3500) {
+function showToastActions(message, actions = [], duration = 3500) {
   clearTimeout(toastTimer);
   elements.toastText.textContent = message;
-  if (actionLabel && action) {
-    elements.toastAction.hidden = false;
-    elements.toastAction.textContent = actionLabel;
-    elements.toastAction.onclick = async () => {
+  const buttons = actions.filter(item => item?.label && typeof item.action === 'function').map(item => {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.textContent = item.label;
+    button.addEventListener('click', async () => {
       elements.toast.classList.remove('visible');
-      await action();
-    };
-  } else {
-    elements.toastAction.hidden = true;
-    elements.toastAction.onclick = null;
-  }
+      await item.action();
+    });
+    return button;
+  });
+  elements.toastActions.replaceChildren(...buttons);
   elements.toast.classList.add('visible');
   toastTimer = setTimeout(() => elements.toast.classList.remove('visible'), duration);
+}
+
+function showToast(message, actionLabel = '', action = null, duration = 3500) {
+  showToastActions(message, actionLabel && action ? [{ label: actionLabel, action }] : [], duration);
+}
+
+function showReturnChoices(entry) {
+  const tomorrow = shiftDateKey(dateKey(), 1);
+  const shiftedDefault = entry.followUpDate !== tomorrow;
+  const actions = resolvedReturnSchedules(entry.id).map(schedule => ({
+    label: schedule.shifted ? `${schedule.label} ← الجلسة` : schedule.label,
+    action: () => scheduleEntryReturn(entry.id, schedule.key)
+  }));
+  showToastActions(
+    shiftedDefault
+      ? `تم الحفظ في «للنظر». امتلأ الغد، فتعود في جلسة ${formatDateKey(entry.followUpDate)}.`
+      : 'تم الحفظ في «للنظر». تاريخ العودة الافتراضي غدًا.',
+    actions,
+    12_000
+  );
 }
 
 async function openSettingsDialog() {
@@ -4751,6 +5546,7 @@ function bindEvents() {
   elements.settingsDialog.addEventListener('close', () => elements.settingsButton.classList.remove('active'));
   elements.themeLightButton.addEventListener('click', () => selectTheme('light'));
   elements.themeDarkButton.addEventListener('click', () => selectTheme('dark'));
+  elements.weeklySessionDay.addEventListener('change', saveWeeklySessionDay);
   systemDarkTheme.addEventListener?.('change', () => {
     if (!validTheme(settingsMap.get('theme'))) applyTheme(null);
   });
@@ -4778,6 +5574,8 @@ function bindEvents() {
   elements.directionButton.addEventListener('click', openDirectionDialog);
   elements.directionForm.addEventListener('submit', handleDirectionSubmit);
   elements.openEveningCloseButton.addEventListener('click', openEveningCloseDialog);
+  elements.openWeeklySessionButton.addEventListener('click', openWeeklySessionDialog);
+  elements.completeWeeklySessionButton.addEventListener('click', completeWeeklySession);
   elements.eveningCloseForm.addEventListener('submit', handleEveningCloseSubmit);
   elements.saveEveningCloseBackupButton.addEventListener('click', () => saveEveningClose({ withBackup: true }));
   elements.quickTaskInput.addEventListener('keydown', event => {
@@ -4829,8 +5627,19 @@ function bindEvents() {
     elements.entryDetailsDialog.close();
     if (entryId) openEditDialog(entryId);
   });
+  elements.entryDetailsShare.addEventListener('click', () => {
+    const entryId = activeDetailsEntryId;
+    elements.entryDetailsDialog.close();
+    if (entryId) openEntryShareDialog(entryId);
+  });
   elements.entryDetailsDialog.addEventListener('close', () => {
     activeDetailsEntryId = null;
+  });
+  elements.entryShareSystemButton.addEventListener('click', shareActiveEntryText);
+  elements.entryShareThingsButton.addEventListener('click', sendActiveEntryToThings);
+  elements.entryCopyTextButton.addEventListener('click', copyActiveEntryText);
+  elements.entryShareDialog.addEventListener('close', () => {
+    activeShareEntryId = null;
   });
   elements.attachmentViewerClose.addEventListener('click', closeImageViewer);
   elements.attachmentViewerZoom.addEventListener('click', toggleImageViewerZoom);
@@ -4858,8 +5667,8 @@ function bindEvents() {
   $$('[data-close-dialog]').forEach(button => button.addEventListener('click', () => {
     document.getElementById(button.dataset.closeDialog)?.close();
   }));
-  [elements.topTaskDialog, elements.captureDialog, elements.directionDialog, elements.eveningCloseDialog, elements.editDialog,
-    elements.entryDetailsDialog, elements.fileViewerDialog, elements.trashDialog, elements.settingsDialog].forEach(dialog => {
+  [elements.topTaskDialog, elements.captureDialog, elements.directionDialog, elements.eveningCloseDialog, elements.weeklySessionDialog, elements.editDialog,
+    elements.entryDetailsDialog, elements.entryShareDialog, elements.fileViewerDialog, elements.trashDialog, elements.settingsDialog].forEach(dialog => {
     dialog.addEventListener('click', event => {
       if (event.target === dialog) dialog.close();
     });
@@ -4876,11 +5685,20 @@ function bindEvents() {
     $$('.path-menu[open]').forEach(menu => {
       if (!menu.contains(event.target)) menu.removeAttribute('open');
     });
+    $$('.return-defer-menu[open]').forEach(menu => {
+      if (!menu.contains(event.target)) menu.removeAttribute('open');
+    });
+  });
+  window.addEventListener('scroll', queueAttachmentImageFallbackCheck, { passive: true, capture: true });
+  window.addEventListener('resize', queueAttachmentImageFallbackCheck, { passive: true });
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') queueAttachmentImageFallbackCheck();
   });
   window.addEventListener('beforeunload', () => {
+    attachmentImageObserver?.disconnect();
+    observedAttachmentImages.forEach(img => takeObservedAttachmentImage(img));
+    if (attachmentImageFallbackFrame) cancelAnimationFrame(attachmentImageFallbackFrame);
     if (activeViewerTemporaryUrl) URL.revokeObjectURL(activeViewerTemporaryUrl);
-    attachmentUrlCache.forEach(cached => URL.revokeObjectURL(cached.url));
-    attachmentUrlCache.clear();
   });
 }
 
@@ -4925,6 +5743,7 @@ async function init() {
   bindEvents();
   await openDatabase();
   await refreshData();
+  await migrateLegacyReturnDates();
   await cleanOldTrash();
   await attemptAutomaticPersistence();
   updateIcloudStatus();
@@ -4935,7 +5754,8 @@ async function init() {
 }
 
 init().catch(async error => {
-  console.error(error);
-  await showNotice('تعذر تشغيل مرساة', 'حدّث الصفحة أو تأكد من سماح المتصفح بالتخزين المحلي.');
+  if (error?.code === 'DB_BLOCKED') console.warn(error.message);
+  else console.error(error);
+  await showNotice('تعذر تشغيل مرساة', storageFailureMessage(error, 'تشغيل مرساة'));
 });
 })();
