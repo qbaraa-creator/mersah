@@ -1749,7 +1749,7 @@ function createTopTaskElement(entry, dayKey) {
   checkTarget.append(checkbox, title);
 
   const remove = document.createElement('button');
-  remove.className = 'action-link danger';
+  remove.className = 'action-link top-task-remove';
   remove.textContent = '×';
   remove.title = 'إزالة من أهم المهام';
   remove.setAttribute('aria-label', 'إزالة من أهم المهام');
