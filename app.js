@@ -213,6 +213,8 @@ const elements = {
   eveningClosedStatus: $('#eveningClosedStatus'),
   saveEveningCloseButton: $('#saveEveningCloseButton'),
   saveEveningCloseBackupButton: $('#saveEveningCloseBackupButton'),
+  analysisOldestRow: $('#analysisOldestRow'),
+  analysisResolutionRow: $('#analysisResolutionRow'),
   analysisResolutionRate: $('#analysisResolutionRate'),
   analysisResolutionDetail: $('#analysisResolutionDetail'),
   analysisOldestAge: $('#analysisOldestAge'),
@@ -1776,7 +1778,6 @@ function entrySearchText(entry) {
 }
 
 function renderEntries() {
-  renderAnalysisSummary();
   const query = clampString(elements.entriesSearchInput.value, 200);
   const terms = normalizeArabic(query).split(' ').filter(Boolean);
   const from = validDateKey(elements.entriesDateFrom.value) || '';
@@ -1954,7 +1955,7 @@ function renderPathBacklog() {
     button.addEventListener('click', () => {
       activeEntriesPath = path;
       entriesResultsLimit = ENTRY_PAGE_SIZE;
-      renderEntries();
+      switchView('entries');
     });
     return button;
   });
@@ -2191,6 +2192,7 @@ function clearEntriesFilters() {
 }
 
 function renderDays() {
+  renderAnalysisSummary();
   const keys = archiveDayKeys(activeArchiveMonth);
   const activityMonths = archiveActivityMonths();
   const earliestMonth = activityMonths.at(-1) || dateKey().slice(0, 7);
@@ -5706,6 +5708,21 @@ function bindEvents() {
     if (!validTheme(settingsMap.get('theme'))) applyTheme(null);
   });
   $$('.nav-btn[data-target]').forEach(button => button.addEventListener('click', () => switchView(button.dataset.target)));
+  elements.analysisOldestRow.addEventListener('click', () => {
+    activeEntriesPath = 'consider';
+    elements.entriesSort.value = 'oldest';
+    entriesResultsLimit = ENTRY_PAGE_SIZE;
+    switchView('entries');
+  });
+  elements.analysisResolutionRow.addEventListener('click', () => {
+    const today = dateKey();
+    activeEntriesPath = 'all';
+    elements.entriesDateFrom.value = shiftDateKey(today, -6);
+    elements.entriesDateTo.value = today;
+    elements.entriesSort.value = 'newest';
+    entriesResultsLimit = ENTRY_PAGE_SIZE;
+    switchView('entries');
+  });
   elements.openTopTaskDialog.addEventListener('click', () => {
     if (!elements.topTaskDialog.open) elements.topTaskDialog.showModal();
     setTimeout(() => elements.quickTaskInput.focus(), 80);

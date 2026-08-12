@@ -923,6 +923,9 @@
       border-block: 1px solid var(--color-divider);
     }
     .analysis-row {
+      all: unset;
+      box-sizing: border-box;
+      width: 100%;
       min-height: var(--tap);
       display: grid;
       grid-template-columns: minmax(0, 1fr) auto;
@@ -930,11 +933,14 @@
       gap: var(--space-2);
       padding-block: 8px;
       border-block-end: 1px solid var(--color-hairline);
+      font: inherit;
+      color: inherit;
+      text-align: start;
     }
     .analysis-row:last-child { border-block-end: 0; }
-    .analysis-row dt { font-size: 13px; font-weight: 600; }
-    .analysis-row dd {
-      margin: 0;
+    button.analysis-row { cursor: pointer; }
+    .analysis-row-name { font-size: 13px; font-weight: 600; }
+    .analysis-row-value {
       display: inline-flex;
       align-items: baseline;
       justify-content: flex-end;
@@ -942,8 +948,8 @@
       text-align: end;
       white-space: nowrap;
     }
-    .analysis-row strong { font-size: 16px; font-weight: 600; font-variant-numeric: tabular-nums; }
-    .analysis-row small { font-size: 12px; color: var(--color-muted); }
+    .analysis-row-value strong { font-size: 16px; font-weight: 600; font-variant-numeric: tabular-nums; }
+    .analysis-row-value small { font-size: 12px; color: var(--color-muted); }
 
     .insight-panel { border-block-end: 1px solid var(--color-hairline); }
     .insight-panel > summary {
@@ -2172,22 +2178,35 @@
               <button class="quiet-btn filter-clear" id="clearEntriesFiltersButton" type="button">مسح الكل</button>
             </div>
           </details>
+          <div class="tiny-note" id="entriesResultsNote" role="status" aria-live="polite"></div>
+          <div class="card-list" id="entriesList"></div>
+          <button class="quiet-btn" id="loadMoreEntriesButton" type="button" hidden>عرض نتائج أقدم</button>
+        </section>
+      </section>
+
+      <section class="view" id="daysView" data-view="days">
+        <section class="panel stack">
+          <div class="section-head">
+            <div>
+              <h2>المراجعة</h2>
+            </div>
+          </div>
           <details class="insight-panel analysis-overview">
             <summary><span>المؤشرات</span><span class="insight-summary-value">من سجلاتك المحلية</span></summary>
-            <dl class="analysis-summary" aria-label="مؤشرات مشتقة من السجلات المحلية لآخر سبعة أيام، دون تتبع الاستخدام">
-              <div class="analysis-row" title="نسبة الالتقاطات الحديثة التي انتقلت إلى مسار أو حُسمت">
-                <dt>معدل الحسم</dt>
-                <dd><strong id="analysisResolutionRate" dir="ltr">—</strong><small id="analysisResolutionDetail">لا التقاطات جديدة</small></dd>
-              </div>
+            <div class="analysis-summary" aria-label="مؤشرات مشتقة من السجلات المحلية، دون تتبع الاستخدام">
+              <button type="button" class="analysis-row" id="analysisOldestRow" title="أقدم التقاطة لا تزال في «للنظر»؛ اضغط لعرضها بالأقدم أولًا">
+                <span class="analysis-row-name">أقدم عالق</span>
+                <span class="analysis-row-value"><strong id="analysisOldestAge">—</strong><small id="analysisOldestDetail">لا عوالق</small></span>
+              </button>
+              <button type="button" class="analysis-row" id="analysisResolutionRow" title="نسبة الالتقاطات الحديثة التي انتقلت إلى مسار أو حُسمت؛ اضغط لعرض التقاطات آخر 7 أيام">
+                <span class="analysis-row-name">معدل الحسم</span>
+                <span class="analysis-row-value"><strong id="analysisResolutionRate" dir="ltr">—</strong><small id="analysisResolutionDetail">لا التقاطات جديدة</small></span>
+              </button>
               <div class="analysis-row">
-                <dt>أقدم عالق</dt>
-                <dd><strong id="analysisOldestAge">—</strong><small id="analysisOldestDetail">لا عوالق</small></dd>
+                <span class="analysis-row-name">إنجاز أهم المهام</span>
+                <span class="analysis-row-value"><strong id="analysisTopCompletion" dir="ltr">—</strong><small id="analysisTopDetail">آخر 7 أيام</small></span>
               </div>
-              <div class="analysis-row">
-                <dt>إنجاز أهم المهام</dt>
-                <dd><strong id="analysisTopCompletion" dir="ltr">—</strong><small id="analysisTopDetail">آخر 7 أيام</small></dd>
-              </div>
-            </dl>
+            </div>
             <div class="analysis-details">
               <details class="insight-panel" id="pathBacklogDetails">
                 <summary><span>تكدّس المسارات</span><span class="insight-summary-value" id="pathBacklogSummary">لا إدخالات</span></summary>
@@ -2203,14 +2222,9 @@
               </details>
             </div>
           </details>
-          <div class="tiny-note" id="entriesResultsNote" role="status" aria-live="polite"></div>
-          <div class="card-list" id="entriesList"></div>
-          <button class="quiet-btn" id="loadMoreEntriesButton" type="button" hidden>عرض نتائج أقدم</button>
         </section>
-      </section>
 
-      <section class="view" id="daysView" data-view="days">
-        <div class="two-col">
+        <div class="two-col panel">
           <section class="panel stack">
             <div class="section-head">
               <div>
@@ -2259,7 +2273,7 @@
     <button class="nav-btn active" data-target="today" aria-current="page">اليوم</button>
     <button class="nav-btn" data-target="entries">الالتقاطات</button>
     <span class="capture-nav-slot" aria-hidden="true"></span>
-    <button class="nav-btn" data-target="days">الأيام</button>
+    <button class="nav-btn" data-target="days">المراجعة</button>
     <button class="nav-btn settings-tab" id="settingsButton" aria-label="الإعدادات" title="الإعدادات">&#9881;</button>
   </nav>
 
