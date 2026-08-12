@@ -248,6 +248,7 @@ const elements = {
   selectedDayTitle: $('#selectedDayTitle'),
   selectedDayMeta: $('#selectedDayMeta'),
   selectedDayDirection: $('#selectedDayDirection'),
+  selectedDayDirectionLabel: $('#selectedDayDirectionLabel'),
   selectedDayDirectionDisplay: $('#selectedDayDirectionDisplay'),
   selectedDayDirectionStatus: $('#selectedDayDirectionStatus'),
   editDayButton: $('#editDayButton'),
@@ -1305,6 +1306,7 @@ function renderAll() {
     renderEntryDetails(activeDetailsEntryId);
   }
   if (elements.weeklySessionDialog.open) renderWeeklySessionDialog();
+  if (elements.eveningCloseDialog.open) renderEveningCloseDialog();
 }
 
 function renderCurrentView() {
@@ -1398,11 +1400,7 @@ function returnActionButton(label, handler, { className = '', iconName = '', dis
   return button;
 }
 
-function createReturnDateMenu(entry) {
-  const details = document.createElement('details');
-  details.className = 'return-defer-menu';
-  const summary = document.createElement('summary');
-  summary.textContent = 'أجّل';
+function buildReturnDateOptions(entry, details) {
   const options = document.createElement('div');
   options.className = 'return-date-options';
   resolvedReturnSchedules(entry.id, dateKey(), { enforceCapacity: false }).forEach(schedule => {
@@ -1416,7 +1414,26 @@ function createReturnDateMenu(entry) {
     });
     options.append(button);
   });
-  details.append(summary, options);
+  return options;
+}
+
+function createReturnDateMenu(entry) {
+  const details = document.createElement('details');
+  details.className = 'return-defer-menu';
+  const summary = document.createElement('summary');
+  summary.textContent = 'أجّل';
+  details.append(summary, buildReturnDateOptions(entry, details));
+  return details;
+}
+
+function createEntryDeferMenu(entry) {
+  const details = document.createElement('details');
+  details.className = 'entry-defer-menu';
+  const summary = document.createElement('summary');
+  summary.append(uiIcon('defer'));
+  summary.title = 'أجّل';
+  summary.setAttribute('aria-label', 'أجّل');
+  details.append(summary, buildReturnDateOptions(entry, details));
   return details;
 }
 
@@ -1628,21 +1645,16 @@ function renderEveningCloseDialog() {
     ? `+${formatNumber(summary.openDo.length - visibleOpen.length)}`
     : '';
   if (visibleOpen.length) {
-    elements.eveningOpenDoList.replaceChildren(...visibleOpen.map(entry => {
-      const item = document.createElement('p');
-      item.className = 'evening-open-item';
-      item.dir = 'auto';
-      item.textContent = entry.text || attachmentOnlyLabel(entry);
-      item.title = item.textContent;
-      return item;
-    }));
+    elements.eveningOpenDoList.replaceChildren(...visibleOpen.map(createReturnCard));
   } else {
     const empty = document.createElement('p');
     empty.className = 'evening-open-empty';
     empty.textContent = 'لا شيء مفتوح.';
     elements.eveningOpenDoList.replaceChildren(empty);
   }
-  elements.eveningTomorrowDirection.value = tomorrowRecord?.direction || closure?.tomorrowDirection || '';
+  if (document.activeElement !== elements.eveningTomorrowDirection) {
+    elements.eveningTomorrowDirection.value = tomorrowRecord?.direction || closure?.tomorrowDirection || '';
+  }
   elements.eveningClosedStatus.textContent = closure
     ? `محفوظ منذ ${formatTime(closure.closedAt)}${closure.backupAt ? ' · النسخة مؤكدة' : ''}`
     : 'سيُحفظ ملخص اليوم مع توجّه الغد.';
@@ -2279,10 +2291,12 @@ function renderSelectedDay() {
   elements.selectedDayTitle.textContent = `${dayName(key)} · ${formatDateKey(key)}`;
   elements.selectedDayMeta.textContent = isToday ? 'اليوم الحالي' : 'سجل يوم سابق';
   const archivedDirectionLocked = !isToday && !selectedDayEditUnlocked;
+  const hasDirection = Boolean(record?.direction);
   elements.selectedDayDirection.readOnly = archivedDirectionLocked;
   elements.selectedDayDirection.hidden = archivedDirectionLocked;
-  elements.selectedDayDirectionDisplay.hidden = !archivedDirectionLocked;
-  elements.selectedDayDirectionDisplay.textContent = record?.direction || 'لا يوجد توجّه محفوظ لهذا اليوم.';
+  elements.selectedDayDirectionDisplay.hidden = !(archivedDirectionLocked && hasDirection);
+  elements.selectedDayDirectionDisplay.textContent = hasDirection ? record.direction : '';
+  elements.selectedDayDirectionLabel.hidden = archivedDirectionLocked && !hasDirection;
   elements.editDayButton.hidden = isToday || selectedDayEditUnlocked;
   if (document.activeElement !== elements.selectedDayDirection) {
     elements.selectedDayDirection.value = record?.direction || '';
@@ -2556,6 +2570,11 @@ const UI_ICON_PATHS = Object.freeze({
   ],
   pathWaiting: [
     'M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18M12 7v5l3 2'
+  ],
+  defer: [
+    'M4 5h16v16H4z',
+    'M4 9h16',
+    'M8 3v4M16 3v4'
   ]
 });
 
@@ -3117,6 +3136,7 @@ function appendEntryActions(container, entry) {
     } else if (entry.path === 'consider') {
       container.append(actionButton('إغلاق', () => setEntryStatus(entry.id, 'closed'), '', 'check'));
     }
+    container.append(createEntryDeferMenu(entry));
   } else if (entry.status === 'done' || entry.status === 'closed') {
     container.append(actionButton('إعادة فتح', () => setEntryStatus(entry.id, 'open'), 'primary', 'reopen'));
   }
@@ -5848,6 +5868,9 @@ function bindEvents() {
       if (!menu.contains(event.target)) menu.removeAttribute('open');
     });
     $$('.return-defer-menu[open]').forEach(menu => {
+      if (!menu.contains(event.target)) menu.removeAttribute('open');
+    });
+    $$('.entry-defer-menu[open]').forEach(menu => {
       if (!menu.contains(event.target)) menu.removeAttribute('open');
     });
   });

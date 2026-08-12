@@ -733,16 +733,7 @@
       color: var(--color-muted);
       font-size: 14px;
     }
-    .evening-open-list { display: grid; gap: 1px; }
-    .evening-open-item {
-      margin: 0;
-      padding: 5px 0;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
-      font-size: 15px;
-      border-bottom: 1px solid color-mix(in srgb, var(--color-divider) 60%, transparent);
-    }
+    .evening-open-list { display: grid; gap: 8px; }
     .evening-open-empty { margin: 0; color: var(--color-muted); font-size: 14px; }
     .evening-closed-status { margin: 0; min-height: 20px; color: var(--color-muted); font-size: 13px; }
 
@@ -868,6 +859,23 @@
     .action-link.primary { color: var(--color-accent-ink); }
     .action-link.top { color: var(--color-accent-ink); }
     .action-link.danger { color: var(--color-danger); }
+
+    .entry-defer-menu { position: relative; min-width: 0; }
+    .entry-defer-menu > summary {
+      list-style: none;
+      display: inline-flex; align-items: center;
+      min-width: var(--tap); min-height: var(--tap);
+      justify-content: center;
+      border: 0; background: transparent;
+      color: var(--color-muted);
+      padding: 8px 10px;
+      border-radius: var(--radius-sm);
+      cursor: pointer;
+    }
+    .entry-defer-menu > summary::-webkit-details-marker { display: none; }
+    .entry-defer-menu > summary .ui-icon { width: 20px; height: 20px; }
+    .entry-defer-menu > summary:hover { background: color-mix(in srgb, var(--color-text) 7%, transparent); }
+    .entry-defer-menu[open] > summary { background: color-mix(in srgb, var(--color-text) 7%, transparent); }
 
     /* ── قائمة نقل المسار ── */
 
@@ -2232,7 +2240,7 @@
               <button class="quiet-btn small-btn" id="editDayButton">تعديل التوجّه</button>
             </div>
             <div class="form-group">
-              <label for="selectedDayDirection">توجّه اليوم</label>
+              <label for="selectedDayDirection" id="selectedDayDirectionLabel">توجّه اليوم</label>
               <p class="archived-direction" id="selectedDayDirectionDisplay" dir="auto" hidden></p>
               <textarea class="field direction-field" id="selectedDayDirection" maxlength="500" rows="4" dir="auto"></textarea>
               <span class="tiny-note" id="selectedDayDirectionStatus"></span>
