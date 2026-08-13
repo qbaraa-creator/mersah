@@ -83,12 +83,18 @@ const STATUSES = Object.freeze({
 });
 
 const RETURN_SCHEDULES = Object.freeze([
+  { key: 'today', label: 'اليوم', days: 0 },
   { key: 'tomorrow', label: 'غدًا', days: 1 },
   { key: 'this-week', label: 'هذا الأسبوع', days: 3 },
   { key: 'next-week', label: 'الأسبوع القادم', days: 7 },
   { key: 'month', label: 'بعد شهر', days: 30 },
   { key: 'session', label: 'الجلسة', days: null }
 ]);
+const DEFAULT_RETURN_SCHEDULE_KEY = 'tomorrow';
+
+function defaultReturnSchedule() {
+  return RETURN_SCHEDULES.find(schedule => schedule.key === DEFAULT_RETURN_SCHEDULE_KEY);
+}
 
 const ENTRY_EVENT_TYPES = new Set([
   'created',
@@ -689,11 +695,12 @@ function nextWeeklySessionDate(fromKey = dateKey()) {
 }
 
 function scheduledReturnCount(targetDate, exceptEntryId = null, today = dateKey()) {
-  const carryOverdue = targetDate === shiftDateKey(today, 1);
+  // العائدة اليوم فعلاً تُحسب ضمن حمل اليوم، والمتأخرة اليوم تُحسب ضمن حمل الغد أيضًا.
+  const includesOverdueBacklog = targetDate === today || targetDate === shiftDateKey(today, 1);
   return entries.filter(entry => entry.id !== exceptEntryId
     && entry.status === 'open'
     && validDateKey(entry.followUpDate)
-    && (entry.followUpDate === targetDate || (carryOverdue && entry.followUpDate <= today))).length;
+    && (entry.followUpDate === targetDate || (includesOverdueBacklog && entry.followUpDate <= today))).length;
 }
 
 function resolveReturnSchedule(schedule, exceptEntryId = null, today = dateKey(), { enforceCapacity = true } = {}) {
@@ -2577,6 +2584,11 @@ const UI_ICON_PATHS = Object.freeze({
     'M4 5h16v16H4z',
     'M4 9h16',
     'M8 3v4M16 3v4'
+  ],
+  close: [
+    'M4 5h16v4H4z',
+    'M5 9v10h14V9',
+    'M10 13h4'
   ]
 });
 
@@ -3133,12 +3145,11 @@ function sendActiveEntryToThings() {
 
 function appendEntryActions(container, entry) {
   if (entry.status === 'open') {
-    if (entry.type === 'task' || entry.path === 'do') {
-      container.append(actionButton('إكمال', () => setEntryStatus(entry.id, 'done'), 'primary', 'check'));
-    } else if (entry.path === 'consider') {
-      container.append(actionButton('إغلاق', () => setEntryStatus(entry.id, 'closed'), '', 'check'));
-    }
-    container.append(createEntryDeferMenu(entry));
+    container.append(
+      actionButton('إكمال', () => setEntryStatus(entry.id, 'done'), 'primary', 'check'),
+      actionButton('إغلاق', () => setEntryStatus(entry.id, 'closed'), '', 'close'),
+      createEntryDeferMenu(entry)
+    );
   } else if (entry.status === 'done' || entry.status === 'closed') {
     container.append(actionButton('إعادة فتح', () => setEntryStatus(entry.id, 'open'), 'primary', 'reopen'));
   }
@@ -3153,7 +3164,6 @@ function appendEntryActions(container, entry) {
   }
 
   container.append(
-    actionButton('نسخ إلى تطبيق', () => openEntryShareDialog(entry.id), '', 'share'),
     actionButton('تحرير', () => openEditDialog(entry.id), '', 'edit'),
     actionButton('حذف', () => trashEntry(entry.id), 'danger', 'trash')
   );
@@ -3211,7 +3221,7 @@ async function createEntry(data, attachmentDrafts = []) {
     person: canonicalFromExisting(data.person, 'person'),
     dueDate: validDateKey(data.dueDate),
     followUpDate: data.followUpDate === undefined
-      ? resolveReturnSchedule(RETURN_SCHEDULES[0]).date
+      ? resolveReturnSchedule(defaultReturnSchedule()).date
       : validDateKey(data.followUpDate),
     topTodayDate: validDateKey(topDate),
     legacy: data.legacy || { source: null, state: null }
@@ -3717,7 +3727,7 @@ async function handleCaptureSubmit(event) {
   elements.captureStatus.hidden = false;
   let entry;
   try {
-    const defaultReturn = resolveReturnSchedule(RETURN_SCHEDULES[0]);
+    const defaultReturn = resolveReturnSchedule(defaultReturnSchedule());
     entry = await createEntry({
       text: elements.captureText.value,
       type: 'note',
