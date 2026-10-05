@@ -155,6 +155,12 @@ let captureReturnTimer;
 let activeReturnPicker = null;
 let visualViewportBaseHeight = window.visualViewport?.height || window.innerHeight;
 let selectedDirectionTimer;
+let selectedDirectionSavePending = false;
+let eveningDirectionDirty = false;
+let backgroundWorkCount = 0;
+let updateReloadPending = false;
+let updateReloadStarted = false;
+let updateReloadTimer;
 let entriesSearchTimer;
 let backupExportDue = false;
 let backupVerificationDue = false;
@@ -210,6 +216,8 @@ const elements = {
   eveningCloseButtonStatus: $('#eveningCloseButtonStatus'),
   eveningCloseDialog: $('#eveningCloseDialog'),
   eveningCloseForm: $('#eveningCloseForm'),
+  eveningTodayDirectionWrap: $('#eveningTodayDirectionWrap'),
+  eveningTodayDirection: $('#eveningTodayDirection'),
   eveningResolvedCount: $('#eveningResolvedCount'),
   eveningCompletedCount: $('#eveningCompletedCount'),
   eveningOpenDoCount: $('#eveningOpenDoCount'),
@@ -1609,9 +1617,13 @@ function dayClosingSummary(day) {
           && !['consider', 'untriaged'].includes(entry.path)) {
         resolvedIds.add(entry.id);
       }
-      if (event.type === 'status_changed' && ['done', 'closed'].includes(event.to)
-          && ['done', 'closed'].includes(entry.status)) {
-        completedIds.add(entry.id);
+      // «أُنجز» للإكمال وحده؛ صرف النظر (closed) وإكمال ما بقي في «للنظر» قرارا حسم.
+      if (event.type === 'status_changed' && event.to === entry.status) {
+        if (event.to === 'done') completedIds.add(entry.id);
+        if (event.to === 'closed'
+            || (event.to === 'done' && ['consider', 'untriaged'].includes(entry.path))) {
+          resolvedIds.add(entry.id);
+        }
       }
     });
   });
@@ -1646,6 +1658,9 @@ function renderEveningCloseDialog() {
   const summary = dayClosingSummary(today);
   const closure = dayClosureFor(today);
   const tomorrowRecord = dailyRecordFor(tomorrow);
+  const todayDirection = String(dailyRecordFor(today)?.direction || '').trim();
+  elements.eveningTodayDirection.textContent = todayDirection;
+  elements.eveningTodayDirectionWrap.hidden = !todayDirection;
   elements.eveningResolvedCount.textContent = formatNumber(summary.resolved);
   elements.eveningCompletedCount.textContent = formatNumber(summary.completed);
   elements.eveningOpenDoCount.textContent = formatNumber(summary.openDo.length);
@@ -1661,7 +1676,8 @@ function renderEveningCloseDialog() {
     empty.textContent = 'لا شيء مفتوح.';
     elements.eveningOpenDoList.replaceChildren(empty);
   }
-  if (document.activeElement !== elements.eveningTomorrowDirection) {
+  // حسم بطاقة يعيد رسم الورقة وينقل التركيز إلى زرها؛ المسودة تُحمى بعلامة الكتابة لا بموضع التركيز.
+  if (!eveningDirectionDirty) {
     elements.eveningTomorrowDirection.value = tomorrowRecord?.direction || closure?.tomorrowDirection || '';
   }
   elements.eveningClosedStatus.textContent = closure
@@ -1670,6 +1686,7 @@ function renderEveningCloseDialog() {
 }
 
 function openEveningCloseDialog() {
+  eveningDirectionDirty = false;
   renderEveningCloseDialog();
   elements.eveningCloseDialog.showModal();
 }
@@ -1874,7 +1891,9 @@ function renderAnalysisSummary() {
     if (included) estimatedResolutionEntries += 1;
     return included;
   });
-  const resolvedEntries = recentEntries.filter(entry => !['consider', 'untriaged'].includes(entry.path));
+  // الإكمال أو صرف النظر من «للنظر» حسمٌ أيضًا، وإن بقي المسار كما هو.
+  const resolvedEntries = recentEntries.filter(entry => ['done', 'closed'].includes(entry.status)
+    || !['consider', 'untriaged'].includes(entry.path));
   elements.analysisResolutionRate.textContent = recentEntries.length
     ? `${Math.round((resolvedEntries.length / recentEntries.length) * 100)}%`
     : '—';
@@ -1882,7 +1901,7 @@ function renderAnalysisSummary() {
     ? `${resolvedEntries.length} من ${recentEntries.length}${estimatedResolutionEntries ? ` · ${estimatedResolutionEntries} تقديري` : ' · 7 أيام'}`
     : 'لا التقاطات جديدة';
 
-  const stuckEntries = entries.filter(entry => entry.status !== 'trash' && entry.path === 'consider');
+  const stuckEntries = entries.filter(entry => entry.status === 'open' && entry.path === 'consider');
   const oldestAge = stuckEntries.reduce((oldest, entry) => Math.max(oldest, entryAgeDays(entry)), 0);
   elements.analysisOldestAge.textContent = stuckEntries.length ? ageDaysLabel(oldestAge) : '—';
   elements.analysisOldestDetail.textContent = stuckEntries.length
@@ -1906,7 +1925,8 @@ function renderAnalysisSummary() {
 }
 
 function renderPathBacklog() {
-  const activeEntries = entries.filter(entry => entry.status !== 'trash');
+  // التكدّس هو المفتوح فقط؛ المكتمل والمغلق خرجا من المسار عمليًا وإن بقيت قيمته محفوظة.
+  const activeEntries = entries.filter(entry => entry.status === 'open');
   const counts = Object.fromEntries(Object.keys(ROUTABLE_PATHS).map(path => [path, 0]));
   activeEntries.forEach(entry => {
     if (hasOwn(counts, entry.path)) counts[entry.path] += 1;
@@ -1915,7 +1935,7 @@ function renderPathBacklog() {
   const maxCount = Math.max(1, ...Object.values(counts));
   elements.pathBacklogSummary.textContent = routedCount
     ? `للنظر ${counts.consider} · بانتظار ${counts.waiting}`
-    : 'لا إدخالات في المسارات';
+    : 'لا مفتوح في المسارات';
 
   const oldThresholds = { consider: 30, waiting: 14 };
   const rows = Object.entries(ROUTABLE_PATHS).map(([path, label]) => {
@@ -3602,8 +3622,14 @@ function scheduleSelectedDirectionSave() {
   if (elements.selectedDayDirection.readOnly) return;
   clearTimeout(selectedDirectionTimer);
   elements.selectedDayDirectionStatus.textContent = 'جارٍ الحفظ…';
-  selectedDirectionTimer = setTimeout(() => {
-    saveDailyDirection(selectedDay, elements.selectedDayDirection.value, elements.selectedDayDirectionStatus);
+  selectedDirectionSavePending = true;
+  selectedDirectionTimer = setTimeout(async () => {
+    try {
+      await saveDailyDirection(selectedDay, elements.selectedDayDirection.value, elements.selectedDayDirectionStatus);
+    } finally {
+      selectedDirectionSavePending = false;
+      reloadForUpdateWhenSafe();
+    }
   }, 650);
 }
 
@@ -3666,8 +3692,10 @@ async function saveEveningClose({ withBackup = false } = {}) {
   }
 
   if (withBackup) {
-    const result = await runExport(exportIcloudBundle, 'تم حفظ الإغلاق، لكن لم تُحفظ النسخة.');
-    if (result?.confirmed) await markEveningCloseBackup(today);
+    await withBackgroundWork(async () => {
+      const result = await runExport(exportIcloudBundle, 'تم حفظ الإغلاق، لكن لم تُحفظ النسخة.');
+      if (result?.confirmed) await markEveningCloseBackup(today);
+    });
   }
   return true;
 }
@@ -5759,6 +5787,9 @@ function bindEvents() {
   elements.openWeeklySessionButton.addEventListener('click', openWeeklySessionDialog);
   elements.completeWeeklySessionButton.addEventListener('click', completeWeeklySession);
   elements.eveningCloseForm.addEventListener('submit', handleEveningCloseSubmit);
+  elements.eveningTomorrowDirection.addEventListener('input', () => {
+    eveningDirectionDirty = true;
+  });
   elements.saveEveningCloseBackupButton.addEventListener('click', () => saveEveningClose({ withBackup: true }));
   elements.quickTaskInput.addEventListener('keydown', event => {
     if (event.key === 'Enter' && !event.isComposing) {
@@ -5925,29 +5956,57 @@ function bindEvents() {
 }
 
 async function runExport(task, failureMessage) {
-  try {
-    const result = await task();
-    if (!result?.delivered) {
+  return withBackgroundWork(async () => {
+    try {
+      const result = await task();
+      if (!result?.delivered) {
+        showToast(failureMessage);
+      } else if (!result.confirmed) {
+        showToast('بدأ التنزيل، لكن لم يُسجّل كنسخة مؤكدة. تحقق من تطبيق الملفات.');
+      }
+      return result;
+    } catch (error) {
+      console.error('فشل التصدير:', error);
       showToast(failureMessage);
-    } else if (!result.confirmed) {
-      showToast('بدأ التنزيل، لكن لم يُسجّل كنسخة مؤكدة. تحقق من تطبيق الملفات.');
+      return null;
     }
-    return result;
-  } catch (error) {
-    console.error('فشل التصدير:', error);
-    showToast(failureMessage);
-    return null;
+  });
+}
+
+async function withBackgroundWork(task) {
+  backgroundWorkCount += 1;
+  try {
+    return await task();
+  } finally {
+    backgroundWorkCount -= 1;
   }
+}
+
+function hasUnsavedWork() {
+  if (backgroundWorkCount > 0 || selectedDirectionSavePending) return true;
+  if ($('dialog[open]') || !elements.captureReturnBar.hidden) return true;
+  const active = document.activeElement;
+  return Boolean(active?.matches?.('textarea, input:not([type]), input[type="text"], input[type="search"], input[type="date"], input[type="month"]'));
+}
+
+function reloadForUpdateWhenSafe() {
+  if (!updateReloadPending || updateReloadStarted || hasUnsavedWork()) return;
+  updateReloadStarted = true;
+  clearInterval(updateReloadTimer);
+  window.location.reload();
 }
 
 async function registerServiceWorker() {
   if (!('serviceWorker' in navigator)) return;
   const hadController = Boolean(navigator.serviceWorker.controller);
-  let reloadingForUpdate = false;
   navigator.serviceWorker.addEventListener('controllerchange', () => {
-    if (!hadController || reloadingForUpdate) return;
-    reloadingForUpdate = true;
-    window.location.reload();
+    if (!hadController || updateReloadPending) return;
+    // العامل الجديد يتسلّم فورًا، لكن إعادة التحميل تنتظر لحظة آمنة:
+    // لا ورقة مفتوحة، ولا حقل كتابة مركّز، ولا حفظ أو تصدير جارٍ، حتى لا تضيع مسودة.
+    updateReloadPending = true;
+    updateReloadTimer = setInterval(reloadForUpdateWhenSafe, 1500);
+    document.addEventListener('visibilitychange', reloadForUpdateWhenSafe);
+    reloadForUpdateWhenSafe();
   });
   try {
     const registration = await navigator.serviceWorker.register('./sw.js', {

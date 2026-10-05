@@ -708,6 +708,16 @@
     .day-close-chevron { color: var(--color-muted); font-size: 24px; }
 
     .evening-close-sheet .dialog-inner { padding-bottom: calc(16px + var(--safe-bottom)); }
+    .evening-today-direction { display: grid; gap: 2px; }
+    .evening-today-direction[hidden] { display: none; }
+    .evening-today-direction-label { color: var(--color-muted); font-size: 12px; }
+    .evening-today-direction-text {
+      margin: 0;
+      font-size: 16px;
+      line-height: 1.65;
+      white-space: pre-wrap;
+      overflow-wrap: anywhere;
+    }
     .evening-summary {
       display: grid;
       grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -1547,6 +1557,13 @@
     body.keyboard-open .evening-close-sheet[open] .evening-closed-status {
       display: none;
     }
+    body.keyboard-open .evening-close-sheet[open] .evening-today-direction-text {
+      display: -webkit-box;
+      -webkit-box-orient: vertical;
+      -webkit-line-clamp: 2;
+      line-clamp: 2;
+      overflow: hidden;
+    }
     body.keyboard-open .edit-sheet[open] .edit-sheet-actions {
       bottom: 0;
       padding-bottom: 8px;
@@ -2351,6 +2368,10 @@
         <button class="dialog-close" data-close-dialog="eveningCloseDialog" aria-label="إغلاق">×</button>
       </div>
       <div class="stack">
+        <div class="evening-today-direction" id="eveningTodayDirectionWrap" hidden>
+          <span class="evening-today-direction-label">توجّه اليوم</span>
+          <p class="evening-today-direction-text" id="eveningTodayDirection" dir="auto"></p>
+        </div>
         <dl class="evening-summary" aria-label="ملخص اليوم">
           <div><dt>حُسم</dt><dd id="eveningResolvedCount">0</dd></div>
           <div><dt>أُنجز</dt><dd id="eveningCompletedCount">0</dd></div>
