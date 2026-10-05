@@ -24,11 +24,13 @@ const HEATMAP_DAYS = 90;
 const DECISION_WINDOW_MIN_EVENTS = 30;
 const DECISION_WINDOW_HOURS = 3;
 const MAX_DAILY_RETURNS = 7;
+const RETURNED_TODAY_BATCH = 5;
+const DEFERRAL_INVITE_THRESHOLD = 3;
 const MAX_WEEKLY_UNDATED_RETURNS = 10;
 const DEFAULT_WEEKLY_SESSION_DAY = 5;
 const RETURN_MIGRATION_SETTING = 'returnDateMigrationV91';
 const WEEKLY_SESSION_COMPLETED_SETTING = 'weeklySessionCompletedDate';
-const BACKUP_SCHEMA_VERSION = 6;
+const BACKUP_SCHEMA_VERSION = 7;
 const MAX_ATTACHMENT_BYTES = 20 * 1024 * 1024;
 const MAX_IMAGE_SOURCE_BYTES = 50 * 1024 * 1024;
 const MAX_ATTACHMENTS_PER_ENTRY = 30;
@@ -157,6 +159,9 @@ let visualViewportBaseHeight = window.visualViewport?.height || window.innerHeig
 let selectedDirectionTimer;
 let selectedDirectionSavePending = false;
 let eveningDirectionDirty = false;
+let eveningReflectionDirty = false;
+let returnedTodayExpandedDay = null;
+let entriesOpenOnly = false;
 let backgroundWorkCount = 0;
 let updateReloadPending = false;
 let updateReloadStarted = false;
@@ -196,6 +201,7 @@ const elements = {
   returnedTodaySection: $('#returnedTodaySection'),
   returnedTodayCount: $('#returnedTodayCount'),
   returnedTodayList: $('#returnedTodayList'),
+  showMoreReturnsButton: $('#showMoreReturnsButton'),
   weeklySessionSection: $('#weeklySessionSection'),
   openWeeklySessionButton: $('#openWeeklySessionButton'),
   weeklySessionButtonStatus: $('#weeklySessionButtonStatus'),
@@ -218,6 +224,8 @@ const elements = {
   eveningCloseForm: $('#eveningCloseForm'),
   eveningTodayDirectionWrap: $('#eveningTodayDirectionWrap'),
   eveningTodayDirection: $('#eveningTodayDirection'),
+  eveningOpenDetails: $('#eveningOpenDetails'),
+  eveningReflection: $('#eveningReflection'),
   eveningResolvedCount: $('#eveningResolvedCount'),
   eveningCompletedCount: $('#eveningCompletedCount'),
   eveningOpenDoCount: $('#eveningOpenDoCount'),
@@ -243,6 +251,7 @@ const elements = {
   decisionWindowCopy: $('#decisionWindowCopy'),
   entriesSearchInput: $('#entriesSearchInput'),
   entriesPathFilters: $('#entriesPathFilters'),
+  entriesOpenOnlyButton: $('#entriesOpenOnlyButton'),
   entriesFilterOptions: $('#entriesFilterOptions'),
   entriesFilterSummary: $('#entriesFilterSummary'),
   entriesDateFrom: $('#entriesDateFrom'),
@@ -1390,8 +1399,22 @@ function renderToday() {
   renderTodayTimeline(today);
 }
 
-function deferredReturnCount(entry) {
-  return storedEntryEventLog(entry).filter(event => event.type === 'return_deferred').length;
+// أحداث لا تقطع سلسلة التأجيل؛ أي تفاعل آخر (نص، مسار، حالة، أهم اليوم، مرفقات) يبدأ العدّ من جديد.
+const DEFERRAL_NEUTRAL_EVENTS = new Set(['return_date_changed', 'due_date_changed', 'top_removed']);
+
+function consecutiveDeferralCount(entry) {
+  const log = storedEntryEventLog(entry);
+  let count = 0;
+  for (let index = log.length - 1; index >= 0; index -= 1) {
+    const type = log[index]?.type;
+    if (type === 'return_deferred') count += 1;
+    else if (!DEFERRAL_NEUTRAL_EVENTS.has(type)) break;
+  }
+  return count;
+}
+
+function deferralTimesLabel(count) {
+  return count <= 10 ? `${formatNumber(count)} مرات` : `${formatNumber(count)} مرة`;
 }
 
 function returnedEntriesFor(today = dateKey()) {
@@ -1493,11 +1516,16 @@ function createReturnCard(entry) {
   } else {
     meta.append(document.createTextNode('بلا تاريخ عودة'));
   }
-  const deferredCount = deferredReturnCount(entry);
-  if (deferredCount >= 3) {
-    const deferred = document.createElement('span');
-    deferred.textContent = `· أُجّل ${formatNumber(deferredCount)} مرات`;
-    meta.append(deferred);
+  const deferredCount = consecutiveDeferralCount(entry);
+  let deferralInvite = null;
+  if (deferredCount >= DEFERRAL_INVITE_THRESHOLD) {
+    deferralInvite = document.createElement('button');
+    deferralInvite.type = 'button';
+    deferralInvite.className = 'deferral-invite';
+    const ask = document.createElement('strong');
+    ask.textContent = 'أعد صياغتها؟';
+    deferralInvite.append(document.createTextNode(`أُجّلت ${deferralTimesLabel(deferredCount)} متتالية · `), ask);
+    deferralInvite.addEventListener('click', () => openEditDialog(entry.id, { unlockText: true }));
   }
 
   const actions = document.createElement('div');
@@ -1513,7 +1541,7 @@ function createReturnCard(entry) {
     }),
     returnActionButton('أغلق', () => setEntryStatus(entry.id, 'closed'))
   );
-  card.append(head, meta, actions);
+  card.append(head, meta, ...(deferralInvite ? [deferralInvite] : []), actions);
   return card;
 }
 
@@ -1524,7 +1552,12 @@ function renderReturnedToday(today = dateKey()) {
   elements.returnedTodayCount.textContent = overdue
     ? `${formatNumber(list.length)} · متأخر ${formatNumber(overdue)}`
     : formatNumber(list.length);
-  elements.returnedTodayList.replaceChildren(...list.map(createReturnCard));
+  // دفعة أولى صغيرة؛ الباقي يبقى بمواعيده ويظهر بطلب صريح ولا يُنقل إلى الجلسة.
+  const visible = returnedTodayExpandedDay === today ? list : list.slice(0, RETURNED_TODAY_BATCH);
+  const remaining = list.length - visible.length;
+  elements.returnedTodayList.replaceChildren(...visible.map(createReturnCard));
+  elements.showMoreReturnsButton.hidden = remaining === 0;
+  elements.showMoreReturnsButton.textContent = `عرض الباقي (${formatNumber(remaining)})`;
 }
 
 function intentionallyClearedReturnDate(entry) {
@@ -1665,9 +1698,11 @@ function renderEveningCloseDialog() {
   elements.eveningCompletedCount.textContent = formatNumber(summary.completed);
   elements.eveningOpenDoCount.textContent = formatNumber(summary.openDo.length);
   const visibleOpen = summary.openDo.slice(0, 3);
-  elements.eveningOpenDoMore.textContent = summary.openDo.length > visibleOpen.length
-    ? `+${formatNumber(summary.openDo.length - visibleOpen.length)}`
-    : '';
+  const moreOpen = summary.openDo.length - visibleOpen.length;
+  elements.eveningOpenDoMore.hidden = moreOpen <= 0;
+  elements.eveningOpenDoMore.textContent = moreOpen > 0 ? `${formatNumber(moreOpen)} أخرى في «نفّذ».` : '';
+  // الحسم في المساء اختياري: يُطوى افتراضيًا ويختفي إن لم يكن هناك مفتوح.
+  elements.eveningOpenDetails.hidden = !summary.openDo.length && !elements.eveningOpenDetails.open;
   if (visibleOpen.length) {
     elements.eveningOpenDoList.replaceChildren(...visibleOpen.map(createReturnCard));
   } else {
@@ -1680,6 +1715,7 @@ function renderEveningCloseDialog() {
   if (!eveningDirectionDirty) {
     elements.eveningTomorrowDirection.value = tomorrowRecord?.direction || closure?.tomorrowDirection || '';
   }
+  if (!eveningReflectionDirty) elements.eveningReflection.value = closure?.reflection || '';
   elements.eveningClosedStatus.textContent = closure
     ? `محفوظ منذ ${formatTime(closure.closedAt)}${closure.backupAt ? ' · النسخة مؤكدة' : ''}`
     : 'سيُحفظ ملخص اليوم مع توجّه الغد.';
@@ -1687,13 +1723,16 @@ function renderEveningCloseDialog() {
 
 function openEveningCloseDialog() {
   eveningDirectionDirty = false;
+  eveningReflectionDirty = false;
+  elements.eveningOpenDetails.open = false;
   renderEveningCloseDialog();
   elements.eveningCloseDialog.showModal();
 }
 
 function renderTopProgress(top) {
   const completed = top.filter(entry => entry.status === 'done').length;
-  const dots = Array.from({ length: 3 }, (_, index) => {
+  // نقطة لكل مهمة مختارة؛ يوم بمهمة واحدة مكتملة يظهر مكتملًا لا «1 من 3».
+  const dots = Array.from({ length: top.length || 3 }, (_, index) => {
     const dot = document.createElement('span');
     dot.className = 'top-progress-dot';
     if (index < top.length) dot.classList.add('assigned');
@@ -1701,14 +1740,16 @@ function renderTopProgress(top) {
     return dot;
   });
   elements.topProgress.replaceChildren(...dots);
-  elements.topProgress.setAttribute('aria-label', `${completed} من 3 مهام مكتملة`);
+  elements.topProgress.setAttribute('aria-label', top.length
+    ? `أهم اليوم: أُنجز ${completed} من ${top.length}`
+    : 'لم تُحدد مهام اليوم بعد');
 }
 
 function renderTopTasks(dayKey, top) {
   if (!top.length) {
     const note = document.createElement('p');
     note.className = 'top-empty';
-    note.textContent = 'ثلاث مهام تكفي اليوم';
+    note.textContent = 'حتى ثلاث مهام';
     elements.topTasksList.replaceChildren(note);
   } else {
     elements.topTasksList.replaceChildren(...top.map(entry => createTopTaskElement(entry, dayKey)));
@@ -1812,6 +1853,7 @@ function renderEntries() {
 
   const matchingBeforePath = entries.filter(entry => {
     if (entry.status === 'trash') return false;
+    if (entriesOpenOnly && entry.status !== 'open') return false;
     const createdDay = entryDate(entry);
     if (from && createdDay < from) return false;
     if (to && createdDay > to) return false;
@@ -1831,7 +1873,8 @@ function renderEntries() {
     : matchingBeforePath.filter(entry => entry.path === activeEntriesPath);
   const results = sortEntriesResults(filtered, sort);
   const shown = results.slice(0, entriesResultsLimit);
-  const hasFilters = Boolean(query || from || to || activeEntriesPath !== 'all' || sort !== 'newest');
+  const hasFilters = Boolean(query || from || to || entriesOpenOnly || activeEntriesPath !== 'all' || sort !== 'newest');
+  elements.entriesOpenOnlyButton.hidden = !entriesOpenOnly;
 
   elements.entriesCount.textContent = String(results.length);
   elements.entriesResultsNote.textContent = entriesResultsNote(query, results.length, shown.length, sort);
@@ -1981,6 +2024,7 @@ function renderPathBacklog() {
     button.append(name, track, meta);
     button.addEventListener('click', () => {
       activeEntriesPath = path;
+      entriesOpenOnly = true;
       entriesResultsLimit = ENTRY_PAGE_SIZE;
       switchView('entries');
     });
@@ -2117,7 +2161,7 @@ function renderDecisionWindow(today) {
   const peakEnd = (peakStart + DECISION_WINDOW_HOURS) % 24;
   const range = `${pad(peakStart)}:00–${pad(peakEnd)}:00`;
   elements.decisionWindowSummary.textContent = `${range} · ${total} حدثًا`;
-  elements.decisionWindowCopy.textContent = `أكثر أوقات الحسم في آخر 90 يومًا: ${range}، وفيها ${peakCount} من ${total} حدثًا موثقًا.`;
+  elements.decisionWindowCopy.textContent = `غالبًا تسجّل قراراتك بين ${range}: ${peakCount} من ${total} حدثًا موثقًا في آخر 90 يومًا. الرقم يصف وقت التسجيل، لا ذروة التركيز.`;
 }
 
 function renderEntriesPathFilters(total, pathCounts) {
@@ -2213,6 +2257,7 @@ function clearEntriesFilters() {
   elements.entriesDateTo.value = '';
   elements.entriesSort.value = 'newest';
   activeEntriesPath = 'all';
+  entriesOpenOnly = false;
   entriesResultsLimit = ENTRY_PAGE_SIZE;
   renderEntries();
   elements.entriesSearchInput.focus();
@@ -2383,6 +2428,13 @@ function createArchivedClosure(closure) {
   summary.className = 'archived-closure-summary';
   summary.textContent = `حُسم ${formatNumber(closure.summary.resolved)} · أُنجز ${formatNumber(closure.summary.completed)} · بقي في نفّذ ${formatNumber(closure.summary.openDo)}`;
   section.append(head, summary);
+  if (closure.reflection) {
+    const reflection = document.createElement('p');
+    reflection.className = 'archived-closure-direction';
+    reflection.dir = 'auto';
+    reflection.textContent = `ما تغيّر: ${closure.reflection}`;
+    section.append(reflection);
+  }
   if (closure.tomorrowDirection) {
     const direction = document.createElement('p');
     direction.className = 'archived-closure-direction';
@@ -3653,6 +3705,7 @@ async function saveEveningClose({ withBackup = false } = {}) {
   const currentClosure = dayClosureFor(today);
   const summary = dayClosingSummary(today);
   const tomorrowDirection = clampString(elements.eveningTomorrowDirection.value, MAX_DIRECTION_LENGTH);
+  const reflection = clampString(elements.eveningReflection.value, MAX_DIRECTION_LENGTH);
   const closure = {
     version: 1,
     closedAt: currentClosure?.closedAt || now,
@@ -3663,6 +3716,7 @@ async function saveEveningClose({ withBackup = false } = {}) {
       completed: summary.completed,
       openDo: summary.openDo.length
     },
+    reflection,
     tomorrowDirection,
     backupAt: currentClosure?.backupAt || null
   };
@@ -3970,7 +4024,7 @@ async function removeEditNewAttachment(id) {
   renderAttachmentPreview(elements.editNewPreview, editNewAttachments, removeEditNewAttachment);
 }
 
-function openEditDialog(entryId) {
+function openEditDialog(entryId, { unlockText = false } = {}) {
   const entry = entries.find(item => item.id === entryId);
   if (!entry) return;
   hideCaptureReturnConfirmation();
@@ -3993,8 +4047,9 @@ function openEditDialog(entryId) {
   elements.editAttachmentsOptions.open = !entry.text && attachmentsFor(entry.id).length > 0;
   renderExistingAttachments(entry.id);
   renderAttachmentPreview(elements.editNewPreview, editNewAttachments, removeEditNewAttachment);
+  if (unlockText) setEditTextUnlocked(true);
   elements.editDialog.showModal();
-  setTimeout(() => elements.editTextUnlockButton.focus(), 80);
+  setTimeout(() => (unlockText ? elements.editText : elements.editTextUnlockButton).focus(), 80);
 }
 
 function resizeEditTextField() {
@@ -4691,6 +4746,9 @@ function buildMarkdown() {
       sections.push(`- حُسم: ${closure.summary.resolved}`);
       sections.push(`- أُنجز: ${closure.summary.completed}`);
       sections.push(`- بقي في نفّذ: ${closure.summary.openDo}`);
+      if (closure.reflection) {
+        sections.push(`- ما تغيّر: ${escapeMarkdown(closure.reflection)}`);
+      }
       if (closure.tomorrowDirection) {
         sections.push(`- توجّه الغد: ${escapeMarkdown(closure.tomorrowDirection)}`);
       }
@@ -5483,6 +5541,7 @@ function sanitizeImportedDayClosure(value, day, recordUpdatedAt) {
     updatedAt,
     local,
     summary,
+    reflection: clampString(value.reflection, MAX_DIRECTION_LENGTH),
     tomorrowDirection: clampString(value.tomorrowDirection, MAX_DIRECTION_LENGTH),
     backupAt
   };
@@ -5748,6 +5807,7 @@ function bindEvents() {
   $$('.nav-btn[data-target]').forEach(button => button.addEventListener('click', () => switchView(button.dataset.target)));
   elements.analysisOldestRow.addEventListener('click', () => {
     activeEntriesPath = 'consider';
+    entriesOpenOnly = true;
     elements.entriesSort.value = 'oldest';
     entriesResultsLimit = ENTRY_PAGE_SIZE;
     switchView('entries');
@@ -5755,6 +5815,7 @@ function bindEvents() {
   elements.analysisResolutionRow.addEventListener('click', () => {
     const today = dateKey();
     activeEntriesPath = 'all';
+    entriesOpenOnly = false;
     elements.entriesDateFrom.value = shiftDateKey(today, -6);
     elements.entriesDateTo.value = today;
     elements.entriesSort.value = 'newest';
@@ -5789,6 +5850,18 @@ function bindEvents() {
   elements.eveningCloseForm.addEventListener('submit', handleEveningCloseSubmit);
   elements.eveningTomorrowDirection.addEventListener('input', () => {
     eveningDirectionDirty = true;
+  });
+  elements.eveningReflection.addEventListener('input', () => {
+    eveningReflectionDirty = true;
+  });
+  elements.showMoreReturnsButton.addEventListener('click', () => {
+    returnedTodayExpandedDay = dateKey();
+    renderReturnedToday();
+  });
+  elements.entriesOpenOnlyButton.addEventListener('click', () => {
+    entriesOpenOnly = false;
+    entriesResultsLimit = ENTRY_PAGE_SIZE;
+    renderEntries();
   });
   elements.saveEveningCloseBackupButton.addEventListener('click', () => saveEveningClose({ withBackup: true }));
   elements.quickTaskInput.addEventListener('keydown', event => {

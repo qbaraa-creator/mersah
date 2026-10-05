@@ -1,11 +1,11 @@
-// مرساة — Service Worker v92-r1 (تثبيت: حماية المسودات، تصحيح المؤشرات، توجّه الصباح في الإغلاق)
+// مرساة — Service Worker v93-r1 (الحلقة اليومية: دفعة العوائد، إغلاق أخف، «ما الذي تغيّر؟»، ألوان أهدأ)
 //
 // مهم عند النشر: ارفع رقم النسخة في CACHE_NAME عند أي تعديل على
 // index.html أو app.js أو manifest.webmanifest أو الأيقونات والخطوط.
 // هذا هو المُشغّل الوحيد للتحديث؛
 // بدونه يبقى المتصفح يخدم النسخة المخزّنة.
 const CACHE_PREFIX = 'mersah-static-';
-const CACHE_NAME = `${CACHE_PREFIX}v92-r1`;
+const CACHE_NAME = `${CACHE_PREFIX}v93-r1`;
 const SHELL_DOCUMENT = './index.html';
 const CORE_SHELL = [
   './',

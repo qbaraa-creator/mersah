@@ -94,7 +94,7 @@
 
       --track-untriaged: #676363;
       --track-do: #006c7a;
-      --track-consider: #a61e5c;
+      --track-consider: #6a4c9c;
       --track-waiting: #865400;
       --track-on-color: #ffffff;
 
@@ -154,7 +154,7 @@
 
         --track-untriaged: #bab6b6;
         --track-do: #62c5ee;
-        --track-consider: #ff90b1;
+        --track-consider: #bba7ee;
         --track-waiting: #e0aa58;
         --track-on-color: #171717;
 
@@ -595,6 +595,20 @@
       white-space: pre-wrap;
       overflow-wrap: anywhere;
     }
+    .returned-more-btn { width: 100%; margin-top: var(--space-2); }
+    .returned-more-btn[hidden] { display: none; }
+    .deferral-invite {
+      min-height: var(--tap);
+      padding: 0;
+      border: 0;
+      background: none;
+      color: var(--color-muted);
+      font: inherit;
+      font-size: 13px;
+      text-align: start;
+      cursor: pointer;
+    }
+    .deferral-invite strong { color: var(--color-accent-ink); font-weight: 600; }
     .return-card-meta {
       display: flex;
       flex-wrap: wrap;
@@ -603,7 +617,7 @@
       color: var(--color-muted);
       font-size: 13px;
     }
-    .return-overdue { color: var(--color-danger); font-weight: 600; }
+    .return-overdue { color: var(--color-text); font-weight: 600; }
     .return-actions {
       display: grid;
       grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -734,15 +748,13 @@
     .evening-summary > div + div { border-inline-start: 1px solid var(--color-divider); }
     .evening-summary dt { color: var(--color-muted); font-size: 12px; }
     .evening-summary dd { margin: 0; font-size: 23px; font-weight: 600; line-height: 1.2; }
-    .evening-open-wrap { display: grid; gap: 6px; }
-    .evening-open-head {
-      display: flex;
-      justify-content: space-between;
-      align-items: baseline;
-      gap: var(--space-2);
-      color: var(--color-muted);
-      font-size: 14px;
-    }
+    .evening-open-wrap[hidden] { display: none; }
+    .evening-open-wrap > summary { gap: var(--space-2); }
+    .evening-open-optional { margin-inline-start: auto; color: var(--color-muted); font-size: 13px; font-weight: 400; }
+    .evening-open-more { margin: 0; color: var(--color-muted); font-size: 13px; }
+    .evening-open-more[hidden] { display: none; }
+    .field-optional { color: var(--color-muted); font-size: 12px; font-weight: 400; }
+    textarea.evening-reflection-field { min-height: 60px; resize: none; }
     .evening-open-list { display: grid; gap: 8px; }
     .evening-open-empty { margin: 0; color: var(--color-muted); font-size: 14px; }
     .evening-closed-status { margin: 0; min-height: 20px; color: var(--color-muted); font-size: 13px; }
@@ -1078,6 +1090,8 @@
       scrollbar-width: none;
     }
     .entries-path-filters::-webkit-scrollbar { display: none; }
+    .entries-open-only { justify-self: start; }
+    .entries-open-only[hidden] { display: none; }
     .entries-path-button {
       all: unset;
       box-sizing: border-box;
@@ -2103,7 +2117,7 @@
                 <span class="direction-summary-value" id="directionDisplay" dir="auto" hidden></span>
               </span>
             </button>
-            <div class="top-progress-dots" id="topProgress" role="img" aria-label="0 من 3 مهام مكتملة">
+            <div class="top-progress-dots" id="topProgress" role="img" aria-label="لم تُحدد مهام اليوم بعد">
               <span class="top-progress-dot"></span>
               <span class="top-progress-dot"></span>
               <span class="top-progress-dot"></span>
@@ -2136,6 +2150,7 @@
             <span class="count" id="returnedTodayCount"></span>
           </div>
           <div class="return-list" id="returnedTodayList"></div>
+          <button class="quiet-btn returned-more-btn" id="showMoreReturnsButton" type="button" hidden>عرض الباقي</button>
         </section>
 
         <details class="panel today-log" id="todayLogSection">
@@ -2172,6 +2187,7 @@
           </div>
           <input class="field" id="entriesSearchInput" type="search" maxlength="200" placeholder="ابحث بالكلمة أو الحرف…" autocomplete="off" aria-label="البحث في الالتقاطات">
           <div class="entries-path-filters" id="entriesPathFilters" role="group" aria-label="تصفية الالتقاطات حسب المسار"></div>
+          <button class="quiet-btn small-btn entries-open-only" id="entriesOpenOnlyButton" type="button" aria-label="إلغاء عرض المفتوح فقط" hidden>المفتوح فقط <span aria-hidden="true">×</span></button>
           <details class="entries-filter-options" id="entriesFilterOptions">
             <summary>
               <span>التاريخ والترتيب</span>
@@ -2377,11 +2393,18 @@
           <div><dt>أُنجز</dt><dd id="eveningCompletedCount">0</dd></div>
           <div><dt>في نفّذ</dt><dd id="eveningOpenDoCount">0</dd></div>
         </dl>
-        <div class="evening-open-wrap">
-          <div class="evening-open-head"><span>المفتوح في نفّذ</span><span id="eveningOpenDoMore"></span></div>
-          <div class="evening-open-list" id="eveningOpenDoList"></div>
-        </div>
+        <details class="options evening-open-wrap" id="eveningOpenDetails">
+          <summary><span>حسم الآن</span><span class="evening-open-optional">اختياري</span></summary>
+          <div class="options-body">
+            <div class="evening-open-list" id="eveningOpenDoList"></div>
+            <p class="evening-open-more" id="eveningOpenDoMore" hidden></p>
+          </div>
+        </details>
         <form class="stack" id="eveningCloseForm">
+          <div class="form-group">
+            <label for="eveningReflection">ما الذي تغيّر؟ <span class="field-optional">اختياري</span></label>
+            <textarea class="field evening-reflection-field" id="eveningReflection" maxlength="500" rows="2" dir="auto" placeholder="سطر واحد يكفي"></textarea>
+          </div>
           <div class="form-group">
             <label for="eveningTomorrowDirection">توجّه الغد</label>
             <textarea class="field direction-field" id="eveningTomorrowDirection" maxlength="500" rows="3" dir="auto" placeholder="ما وجهتك غدًا؟"></textarea>

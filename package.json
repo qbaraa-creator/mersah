@@ -1,0 +1,11 @@
+{
+  "name": "mersah-pwa-dev",
+  "private": true,
+  "description": "أدوات تطوير محلية لمرساة فقط؛ لا تُرفع مع التطبيق.",
+  "scripts": {
+    "test": "playwright test"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.63.0"
+  }
+}
