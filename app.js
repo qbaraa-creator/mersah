@@ -2,17 +2,19 @@
 'use strict';
 
 const DB_NAME = 'mersah-daily';
-const DB_VERSION = 4;
+const DB_VERSION = 5;
 const LEGACY_DB_NAME = 'mersah-db';
 const DAY = 24 * 60 * 60 * 1000;
-const DAY_START_HOUR = 4;
+const DEFAULT_DAY_START_HOUR = 4;
 const TRASH_RETENTION_DAYS = 7;
 const BACKUP_REMINDER_DAYS = 7;
 const BACKUP_VERIFICATION_REMINDER_DAYS = 90;
 const PERSISTENCE_RETRY_DAYS = 30;
-const MAX_TEXT_LENGTH = 5000;
+const MAX_TEXT_LENGTH = 20000;
 const MAX_SHORT_TEXT = 80;
-const MAX_DIRECTION_LENGTH = 500;
+const MAX_DIRECTION_LENGTH = 2000;
+const MAX_QUOTE_LENGTH = 1000;
+const MAX_QUOTE_SOURCE = 120;
 const MAX_ID_LENGTH = 180;
 const MAX_IMPORT_BYTES = 80 * 1024 * 1024;
 const MAX_IMPORT_TOTAL_BYTES = 400 * 1024 * 1024;
@@ -30,7 +32,7 @@ const MAX_WEEKLY_UNDATED_RETURNS = 10;
 const DEFAULT_WEEKLY_SESSION_DAY = 5;
 const RETURN_MIGRATION_SETTING = 'returnDateMigrationV91';
 const WEEKLY_SESSION_COMPLETED_SETTING = 'weeklySessionCompletedDate';
-const BACKUP_SCHEMA_VERSION = 7;
+const BACKUP_SCHEMA_VERSION = 8;
 const MAX_ATTACHMENT_BYTES = 20 * 1024 * 1024;
 const MAX_IMAGE_SOURCE_BYTES = 50 * 1024 * 1024;
 const MAX_ATTACHMENTS_PER_ENTRY = 30;
@@ -98,6 +100,37 @@ function defaultReturnSchedule() {
   return RETURN_SCHEDULES.find(schedule => schedule.key === DEFAULT_RETURN_SCHEDULE_KEY);
 }
 
+// تفضيلات منقولة من التطبيق الأصلي بالأسماء والمجالات نفسها، فتنتقل في نسخة JSON بين الطرفين.
+function integerOf(value, min, max, fallback) {
+  const number = Number(value);
+  return Number.isInteger(number) && number >= min && number <= max ? number : fallback;
+}
+function integerSetting(key, fallback, min, max) {
+  const value = Number(settingsMap.get(key));
+  return Number.isInteger(value) && value >= min && value <= max ? value : fallback;
+}
+function topLimitValue() { return integerSetting('topLimit', 3, 1, 3); }
+function rewriteThresholdValue() { return integerSetting('rewriteThreshold', DEFERRAL_INVITE_THRESHOLD, 2, 5); }
+function dayCapacityValue() { return integerSetting('dayCapacity', MAX_DAILY_RETURNS, 5, 12); }
+function trashDaysValue() {
+  const value = Number(settingsMap.get('trashDays'));
+  return [7, 14, 30].includes(value) ? value : TRASH_RETENTION_DAYS;
+}
+function defaultReturnPreference() {
+  const value = settingsMap.get('defaultReturn');
+  return ['today', 'tomorrow', 'none'].includes(value) ? value : 'tomorrow';
+}
+function defaultPathPreference() {
+  const value = settingsMap.get('defaultPath');
+  return ['consider', 'do', 'waiting'].includes(value) ? value : 'consider';
+}
+function defaultCaptureReturnDate() {
+  const preference = defaultReturnPreference();
+  if (preference === 'none') return null;
+  const schedule = RETURN_SCHEDULES.find(item => item.key === preference) || defaultReturnSchedule();
+  return resolveReturnSchedule(schedule).date;
+}
+
 const ENTRY_EVENT_TYPES = new Set([
   'created',
   'path_changed',
@@ -125,6 +158,8 @@ let entries = [];
 let attachments = [];
 let dailyRecords = [];
 let settings = [];
+let checklistReorderEntryId = null;
+let quotes = [];
 let settingsMap = new Map();
 let dailyRecordsByDate = new Map();
 let entriesByDate = new Map();
@@ -183,6 +218,61 @@ const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
 const hasOwn = (object, key) => Object.prototype.hasOwnProperty.call(object, key);
 
 const elements = {
+  todayView: $('#todayView'),
+  todayQuoteSection: $('#todayQuoteSection'),
+  todayQuoteButton: $('#todayQuoteButton'),
+  todayQuoteText: $('#todayQuoteText'),
+  todayQuoteSource: $('#todayQuoteSource'),
+  todayQuoteHint: $('#todayQuoteHint'),
+  todayQuoteHintButton: $('#todayQuoteHintButton'),
+  todayQuoteHintDismiss: $('#todayQuoteHintDismiss'),
+  directionQuotePreview: $('#directionQuotePreview'),
+  quoteActionsDialog: $('#quoteActionsDialog'),
+  quoteActionsPreview: $('#quoteActionsPreview'),
+  quoteNextButton: $('#quoteNextButton'),
+  quotePinButton: $('#quotePinButton'),
+  quoteDirectionButton: $('#quoteDirectionButton'),
+  quoteCopyButton: $('#quoteCopyButton'),
+  quoteMuteButton: $('#quoteMuteButton'),
+  quoteManageButton: $('#quoteManageButton'),
+  quotesDialog: $('#quotesDialog'),
+  quoteNewButton: $('#quoteNewButton'),
+  quoteBulkButton: $('#quoteBulkButton'),
+  quoteImportInput: $('#quoteImportInput'),
+  quoteStarterButton: $('#quoteStarterButton'),
+  quotesList: $('#quotesList'),
+  quoteEditDialog: $('#quoteEditDialog'),
+  quoteEditTitle: $('#quoteEditTitle'),
+  quoteEditForm: $('#quoteEditForm'),
+  quoteEditId: $('#quoteEditId'),
+  quoteEditText: $('#quoteEditText'),
+  quoteEditSource: $('#quoteEditSource'),
+  quoteEditCollection: $('#quoteEditCollection'),
+  quoteEditActive: $('#quoteEditActive'),
+  quoteDeleteButton: $('#quoteDeleteButton'),
+  quoteBulkDialog: $('#quoteBulkDialog'),
+  quoteBulkForm: $('#quoteBulkForm'),
+  quoteBulkText: $('#quoteBulkText'),
+  quoteBulkCollection: $('#quoteBulkCollection'),
+  quoteBulkPreview: $('#quoteBulkPreview'),
+  quoteCollectionsList: $('#quoteCollectionsList'),
+  todayLayoutDialog: $('#todayLayoutDialog'),
+  todayLayoutList: $('#todayLayoutList'),
+  todayLayoutEvening: $('#todayLayoutEvening'),
+  todayLayoutReturns: $('#todayLayoutReturns'),
+  todayLayoutReset: $('#todayLayoutReset'),
+  openTodayLayoutButton: $('#openTodayLayoutButton'),
+  topLimitSetting: $('#topLimitSetting'),
+  rewriteThresholdSetting: $('#rewriteThresholdSetting'),
+  dayCapacitySetting: $('#dayCapacitySetting'),
+  defaultReturnSetting: $('#defaultReturnSetting'),
+  defaultPathSetting: $('#defaultPathSetting'),
+  trashDaysSetting: $('#trashDaysSetting'),
+  quoteSettingsStatus: $('#quoteSettingsStatus'),
+  quoteVisibleSetting: $('#quoteVisibleSetting'),
+  quoteRotationSetting: $('#quoteRotationSetting'),
+  quoteCollectionSetting: $('#quoteCollectionSetting'),
+  openQuotesButton: $('#openQuotesButton'),
   settingsButton: $('#settingsButton'),
   brandToday: $('#brandToday'),
   yearProgress: $('#yearProgress'),
@@ -294,6 +384,7 @@ const elements = {
   editTextUnlockButton: $('#editTextUnlockButton'),
   editPath: $('#editPath'),
   editReturnDate: $('#editReturnDate'),
+  editReturnTime: $('#editReturnTime'),
   editReturnPickerButton: $('#editReturnPickerButton'),
   editReturnSummary: $('#editReturnSummary'),
   editPathAge: $('#editPathAge'),
@@ -310,6 +401,7 @@ const elements = {
   returnPickerOptions: $('#returnPickerOptions'),
   returnPickerCustomForm: $('#returnPickerCustomForm'),
   returnPickerCustomDate: $('#returnPickerCustomDate'),
+  returnPickerCustomTime: $('#returnPickerCustomTime'),
   attachmentViewerDialog: $('#attachmentViewerDialog'),
   attachmentViewerClose: $('#attachmentViewerClose'),
   attachmentViewerTitle: $('#attachmentViewerTitle'),
@@ -331,6 +423,15 @@ const elements = {
   entryDetailsAttachments: $('#entryDetailsAttachments'),
   entryDetailsEvents: $('#entryDetailsEvents'),
   entryDetailsShare: $('#entryDetailsShare'),
+  entryDetailsQuote: $('#entryDetailsQuote'),
+  entryDetailsReturnFact: $('#entryDetailsReturnFact'),
+  entryDetailsReturn: $('#entryDetailsReturn'),
+  entryChecklistSection: $('#entryChecklistSection'),
+  entryChecklistTitle: $('#entryChecklistTitle'),
+  entryChecklistReorder: $('#entryChecklistReorder'),
+  entryChecklist: $('#entryChecklist'),
+  entryChecklistForm: $('#entryChecklistForm'),
+  entryChecklistInput: $('#entryChecklistInput'),
   entryDetailsEdit: $('#entryDetailsEdit'),
   entryShareDialog: $('#entryShareDialog'),
   entrySharePreview: $('#entrySharePreview'),
@@ -349,6 +450,7 @@ const elements = {
   themeLightButton: $('#themeLightButton'),
   themeDarkButton: $('#themeDarkButton'),
   weeklySessionDay: $('#weeklySessionDay'),
+  dayStartHour: $('#dayStartHour'),
   storageStatus: $('#storageStatus'),
   storageMeter: $('#storageMeter'),
   storageMeterFill: $('#storageMeterFill'),
@@ -412,6 +514,9 @@ function openDatabase() {
       }
       if (!db.objectStoreNames.contains('settings')) {
         db.createObjectStore('settings', { keyPath: 'key' });
+      }
+      if (!db.objectStoreNames.contains('quotes')) {
+        db.createObjectStore('quotes', { keyPath: 'id' });
       }
       if (event.oldVersion < 3) {
         const entryStore = request.transaction.objectStore('entries');
@@ -515,8 +620,8 @@ async function deleteRecord(storeName, key) {
 }
 
 async function writeImportBatch(batch) {
-  return runAtomicWrite(['entries', 'daily', 'settings', 'attachments', 'attachmentData'], (stores, track) => {
-    for (const storeName of ['entries', 'daily', 'settings']) {
+  return runAtomicWrite(['entries', 'daily', 'settings', 'quotes', 'attachments', 'attachmentData'], (stores, track) => {
+    for (const storeName of ['entries', 'daily', 'settings', 'quotes']) {
       for (const value of batch[storeName] || []) {
         track(stores[storeName].put(value));
       }
@@ -608,6 +713,7 @@ async function selectTheme(theme) {
   applyTheme(nextTheme);
   try {
     await putSetting('theme', nextTheme);
+    await putSetting('appearance', nextTheme);
   } catch (error) {
     applyTheme(previousTheme);
     reportStorageFailure(error, 'حفظ المظهر');
@@ -685,7 +791,12 @@ function dateKey(value = new Date()) {
   const date = value instanceof Date ? value : new Date(value);
   if (Number.isNaN(date.getTime())) return dateKey();
   const civilDay = civilDateKey(date);
-  return date.getHours() < DAY_START_HOUR ? shiftDateKey(civilDay, -1) : civilDay;
+  return date.getHours() < dayStartHourValue() ? shiftDateKey(civilDay, -1) : civilDay;
+}
+
+function dayStartHourValue(value = settingsMap.get('dayStartHour')) {
+  const hour = Number(value);
+  return Number.isInteger(hour) && hour >= 2 && hour <= 6 ? hour : DEFAULT_DAY_START_HOUR;
 }
 
 function dateFromKey(key) {
@@ -697,6 +808,62 @@ function shiftDateKey(key, amount) {
   const date = dateFromKey(key);
   date.setDate(date.getDate() + amount);
   return civilDateKey(date);
+}
+
+// العودة بساعة محددة تُحفظ في followUpAt، ويبقى followUpDate يومها المدني. العودة بلا ساعة: followUpAt فارغ.
+function validFollowUpAt(value) {
+  if (!value) return null;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
+  return date.getHours() === 0 && date.getMinutes() === 0 ? null : date.toISOString();
+}
+
+function followUpMomentFor(dayKey, time) {
+  const match = /^(\d{2}):(\d{2})$/.exec(String(time || ''));
+  if (!validDateKey(dayKey) || !match) return null;
+  const date = dateFromKey(dayKey);
+  date.setHours(Number(match[1]), Number(match[2]), 0, 0);
+  return validFollowUpAt(date.toISOString());
+}
+
+function followUpTimeLabel(entry) {
+  return clockValue(validFollowUpAt(entry?.followUpAt));
+}
+
+function clockValue(iso) {
+  if (!iso) return '';
+  const date = new Date(iso);
+  return `${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+
+const MAX_CHECKLIST_ITEMS = 200;
+const MAX_CHECKLIST_TEXT = 500;
+
+function sanitizeChecklist(value) {
+  if (!Array.isArray(value)) return [];
+  const seen = new Set();
+  return value.slice(0, MAX_CHECKLIST_ITEMS).map(item => {
+    const text = clampString(item?.text, MAX_CHECKLIST_TEXT).trim();
+    let id = clampString(item?.id, MAX_ID_LENGTH);
+    if (!text) return null;
+    if (!id || seen.has(id)) id = uid('item');
+    seen.add(id);
+    return { id, text, done: item?.done === true };
+  }).filter(Boolean);
+}
+
+function checklistFor(entry) {
+  return Array.isArray(entry?.checklist) ? entry.checklist : [];
+}
+
+function checklistSummary(entry) {
+  const list = checklistFor(entry);
+  if (!list.length) return null;
+  return {
+    next: list.find(item => !item.done)?.text || null,
+    done: list.filter(item => item.done).length,
+    total: list.length
+  };
 }
 
 function weeklySessionDayValue(value = settingsMap.get('weeklySessionDay')) {
@@ -726,7 +893,7 @@ function resolveReturnSchedule(schedule, exceptEntryId = null, today = dateKey()
     : shiftDateKey(today, schedule.days);
   const sessionDate = nextWeeklySessionDate(today);
   const shifted = enforceCapacity && schedule.key !== 'session' && requestedDate !== sessionDate
-    && scheduledReturnCount(requestedDate, exceptEntryId, today) >= MAX_DAILY_RETURNS;
+    && scheduledReturnCount(requestedDate, exceptEntryId, today) >= dayCapacityValue();
   return {
     ...schedule,
     requestedDate,
@@ -880,6 +1047,13 @@ function returnDateSummary(key) {
   const relative = relativeDayLabel(date);
   const calendar = formatHeaderDayMonth(date);
   return Math.abs(distance) <= 6 ? `${relative} · ${calendar}` : calendar;
+}
+
+// «غدًا · 14 أكتوبر · 16:30» لعودة بساعة، أو اليوم وحده لعودة بلا ساعة.
+function returnMomentSummary(key, at) {
+  const time = clockValue(validFollowUpAt(at));
+  const day = returnDateSummary(key);
+  return time && validDateKey(key) ? `${day} · ${time}` : day;
 }
 
 function dayName(key) {
@@ -1159,7 +1333,7 @@ function entryDate(entry) {
   const localDate = validDateKey(entry?.createdLocal?.date);
   const localHour = Number(entry?.createdLocal?.hour);
   if (localDate && Number.isInteger(localHour) && localHour >= 0 && localHour <= 23) {
-    return localHour < DAY_START_HOUR ? shiftDateKey(localDate, -1) : localDate;
+    return localHour < dayStartHourValue() ? shiftDateKey(localDate, -1) : localDate;
   }
   return localDate || dateKey(entry.createdAt);
 }
@@ -1228,12 +1402,12 @@ function rebuildDataIndexes() {
       if (ai !== bi) return ai - bi;
       return new Date(a.createdAt) - new Date(b.createdAt);
     });
-    topEntriesByDate.set(day, list.slice(0, 3));
+    topEntriesByDate.set(day, list.slice(0, topLimitValue()));
   });
 }
 
 function canAddTop(dayKey, exceptId = null) {
-  return topEntriesFor(dayKey).filter(entry => entry.id !== exceptId).length < 3;
+  return topEntriesFor(dayKey).filter(entry => entry.id !== exceptId).length < topLimitValue();
 }
 
 async function syncDailyTop(dayKey) {
@@ -1251,7 +1425,7 @@ function dailyTopRecordForEntries(dayKey, sourceEntries, timestamp = nowIso()) {
       if (ai !== bi) return ai - bi;
       return new Date(a.createdAt) - new Date(b.createdAt);
     })
-    .slice(0, 3)
+    .slice(0, topLimitValue())
     .map(entry => entry.id);
   return {
     date: dayKey,
@@ -1264,12 +1438,14 @@ function dailyTopRecordForEntries(dayKey, sourceEntries, timestamp = nowIso()) {
 }
 
 async function refreshData() {
-  const [entryRows, attachmentRows, dailyRows, settingRows] = await Promise.all([
+  const [entryRows, attachmentRows, dailyRows, settingRows, quoteRows] = await Promise.all([
     getAll('entries'),
     getAll('attachments'),
     getAll('daily'),
-    getAll('settings')
+    getAll('settings'),
+    getAll('quotes')
   ]);
+  quotes = quoteRows;
   entries = entryRows;
   attachments = attachmentRows;
   dailyRecords = dailyRows;
@@ -1363,9 +1539,14 @@ function yearProgressFor(key) {
 
 function refreshForNewDay() {
   const currentDayKey = dateKey();
-  if (currentDayKey === observedDayKey) return;
+  if (currentDayKey === observedDayKey) {
+    // إيقاع المساء يتغير خلال اليوم نفسه.
+    if (currentView === 'today') applyTodayLayout(currentDayKey);
+    return;
+  }
   observedDayKey = currentDayKey;
   renderCurrentView();
+  archivePastDirections(currentDayKey).catch(error => console.warn(error));
 }
 
 function renderStaticOptions() {
@@ -1382,6 +1563,8 @@ function fillSelect(select, options) {
 function renderToday() {
   const today = dateKey();
   const record = dailyRecordFor(today);
+  applyTodayLayout(today);
+  renderTodayQuote(today);
   const top = topEntriesFor(today);
   renderTopProgress(top);
   const direction = String(record?.direction || '').trim();
@@ -1389,9 +1572,10 @@ function renderToday() {
   elements.directionDisplay.hidden = !direction;
   elements.directionButton.classList.toggle('has-direction', Boolean(direction));
   elements.directionButton.setAttribute('aria-label', direction ? `توجّه اليوم: ${direction}` : 'توجّه اليوم');
-  elements.addTopTaskButton.disabled = top.length >= 3;
-  elements.openTopTaskDialog.hidden = top.length >= 3;
-  if (top.length >= 3 && elements.topTaskDialog.open) elements.topTaskDialog.close();
+  const topFull = top.length >= topLimitValue();
+  elements.addTopTaskButton.disabled = topFull;
+  elements.openTopTaskDialog.hidden = topFull;
+  if (topFull && elements.topTaskDialog.open) elements.topTaskDialog.close();
   renderReturnedToday(today);
   renderTopTasks(today, top);
   renderWeeklySessionButton(today);
@@ -1510,15 +1694,17 @@ function createReturnCard(entry) {
     overdue.textContent = `متأخر ${ageDaysLabel(overdueDays)}`;
     meta.append(overdue);
   } else if (entry.followUpDate === today) {
-    meta.append(document.createTextNode('موعده اليوم'));
+    const returnTime = followUpTimeLabel(entry);
+    meta.append(document.createTextNode(returnTime ? `موعده اليوم · ${returnTime}` : 'موعده اليوم'));
   } else if (validDateKey(entry.followUpDate)) {
-    meta.append(document.createTextNode(`يعود ${relativeDayLabel(entry.followUpDate)}`));
+    const returnTime = followUpTimeLabel(entry);
+    meta.append(document.createTextNode(`يعود ${relativeDayLabel(entry.followUpDate)}${returnTime ? ` · ${returnTime}` : ''}`));
   } else {
     meta.append(document.createTextNode('بلا تاريخ عودة'));
   }
   const deferredCount = consecutiveDeferralCount(entry);
   let deferralInvite = null;
-  if (deferredCount >= DEFERRAL_INVITE_THRESHOLD) {
+  if (deferredCount >= rewriteThresholdValue()) {
     deferralInvite = document.createElement('button');
     deferralInvite.type = 'button';
     deferralInvite.className = 'deferral-invite';
@@ -1553,7 +1739,8 @@ function renderReturnedToday(today = dateKey()) {
     ? `${formatNumber(list.length)} · متأخر ${formatNumber(overdue)}`
     : formatNumber(list.length);
   // دفعة أولى صغيرة؛ الباقي يبقى بمواعيده ويظهر بطلب صريح ولا يُنقل إلى الجلسة.
-  const visible = returnedTodayExpandedDay === today ? list : list.slice(0, RETURNED_TODAY_BATCH);
+  const batch = todayLayout().returnsVisible || list.length;
+  const visible = returnedTodayExpandedDay === today ? list : list.slice(0, batch);
   const remaining = list.length - visible.length;
   elements.returnedTodayList.replaceChildren(...visible.map(createReturnCard));
   elements.showMoreReturnsButton.hidden = remaining === 0;
@@ -1732,7 +1919,7 @@ function openEveningCloseDialog() {
 function renderTopProgress(top) {
   const completed = top.filter(entry => entry.status === 'done').length;
   // نقطة لكل مهمة مختارة؛ يوم بمهمة واحدة مكتملة يظهر مكتملًا لا «1 من 3».
-  const dots = Array.from({ length: top.length || 3 }, (_, index) => {
+  const dots = Array.from({ length: top.length || topLimitValue() }, (_, index) => {
     const dot = document.createElement('span');
     dot.className = 'top-progress-dot';
     if (index < top.length) dot.classList.add('assigned');
@@ -1749,7 +1936,7 @@ function renderTopTasks(dayKey, top) {
   if (!top.length) {
     const note = document.createElement('p');
     note.className = 'top-empty';
-    note.textContent = 'حتى ثلاث مهام';
+    note.textContent = ['', 'مهمة واحدة', 'حتى مهمتين', 'حتى ثلاث مهام'][topLimitValue()];
     elements.topTasksList.replaceChildren(note);
   } else {
     elements.topTasksList.replaceChildren(...top.map(entry => createTopTaskElement(entry, dayKey)));
@@ -1903,7 +2090,7 @@ function recordedOperationalDate(localDate, localHour, fallbackTimestamp) {
   const key = validDateKey(localDate);
   const hour = Number(localHour);
   if (key && Number.isInteger(hour) && hour >= 0 && hour <= 23) {
-    return hour < DAY_START_HOUR ? shiftDateKey(key, -1) : key;
+    return hour < dayStartHourValue() ? shiftDateKey(key, -1) : key;
   }
   return key || dateKey(fallbackTimestamp);
 }
@@ -2470,6 +2657,14 @@ function createEntryCard(entry) {
   const heading = document.createElement('div');
   heading.className = 'entry-heading';
   heading.append(createPathMenu(entry), text);
+  const checklist = checklistSummary(entry);
+  if (checklist) {
+    const line = document.createElement('small');
+    line.className = 'checklist-summary';
+    line.dir = 'auto';
+    line.textContent = `${checklist.next ? `${checklist.next} · ` : ''}${formatNumber(checklist.done)}/${formatNumber(checklist.total)}`;
+    text.append(line);
+  }
 
   const meta = document.createElement('div');
   meta.className = 'meta';
@@ -2569,6 +2764,10 @@ function renderEntryDetails(entryId) {
     : []));
   elements.entryDetailsShare.hidden = entry.status === 'trash';
   elements.entryDetailsEdit.hidden = entry.status === 'trash';
+  elements.entryDetailsQuote.hidden = entry.status === 'trash' || !entry.text.trim();
+  elements.entryDetailsReturnFact.hidden = !validDateKey(entry.followUpDate);
+  elements.entryDetailsReturn.textContent = returnMomentSummary(entry.followUpDate, entry.followUpAt);
+  renderEntryChecklist(entry);
 
   releaseObservedAttachmentImages(elements.entryDetailsAttachments);
   const attachmentRow = createAttachmentRow(entry.id);
@@ -2597,6 +2796,95 @@ function renderEntryDetails(entryId) {
   });
   elements.entryDetailsEvents.replaceChildren(...eventItems);
   return true;
+}
+
+// بنود تفصيلية مرتبة داخل الالتقاطة؛ تُحفظ مع السجل وتدخل نسخ JSON كما يحفظها التطبيق الأصلي.
+function renderEntryChecklist(entry) {
+  const list = checklistFor(entry);
+  const editable = entry.status !== 'trash';
+  const summary = checklistSummary(entry);
+  elements.entryChecklistSection.hidden = !editable && !list.length;
+  elements.entryChecklistTitle.textContent = summary
+    ? `البنود · ${formatNumber(summary.done)}/${formatNumber(summary.total)}`
+    : 'البنود';
+  elements.entryChecklistReorder.hidden = !editable || list.length < 2;
+  if (list.length < 2) checklistReorderEntryId = null;
+  const reordering = checklistReorderEntryId === entry.id;
+  elements.entryChecklistReorder.setAttribute('aria-pressed', String(reordering));
+  elements.entryChecklistReorder.textContent = reordering ? 'تم' : 'ترتيب';
+  elements.entryChecklistForm.hidden = !editable;
+  elements.entryChecklist.replaceChildren(...list.map((item, index) => {
+    const row = document.createElement('li');
+    row.className = `checklist-item${item.done ? ' is-done' : ''}`;
+    const toggle = document.createElement('button');
+    toggle.type = 'button';
+    toggle.className = 'checklist-toggle';
+    toggle.disabled = !editable;
+    toggle.setAttribute('aria-pressed', String(item.done));
+    toggle.setAttribute('aria-label', item.done ? `إعادة فتح: ${item.text}` : `إنجاز: ${item.text}`);
+    if (item.done) toggle.append(uiIcon('check'));
+    toggle.addEventListener('click', () => saveChecklist(entry.id, list.map(other =>
+      other.id === item.id ? { ...other, done: !other.done } : other)));
+    const text = document.createElement('span');
+    text.className = 'checklist-text';
+    text.dir = 'auto';
+    text.textContent = item.text;
+    const tools = document.createElement('span');
+    tools.className = 'checklist-tools';
+    if (editable && reordering) {
+      tools.append(
+        checklistTool('↑', `تقديم: ${item.text}`, index === 0, () => moveChecklistItem(entry.id, index, -1)),
+        checklistTool('↓', `تأخير: ${item.text}`, index === list.length - 1, () => moveChecklistItem(entry.id, index, 1))
+      );
+    } else if (editable) {
+      tools.append(checklistTool('×', `حذف البند: ${item.text}`, false, () =>
+        saveChecklist(entry.id, list.filter(other => other.id !== item.id))));
+    }
+    row.append(toggle, text, tools);
+    return row;
+  }));
+}
+
+function checklistTool(label, ariaLabel, disabled, handler) {
+  const button = document.createElement('button');
+  button.type = 'button';
+  button.textContent = label;
+  button.disabled = disabled;
+  button.setAttribute('aria-label', ariaLabel);
+  button.title = ariaLabel;
+  button.addEventListener('click', handler);
+  return button;
+}
+
+async function saveChecklist(entryId, list) {
+  try {
+    await updateEntry(entryId, { checklist: list });
+  } catch (error) {
+    reportStorageFailure(error, 'حفظ البنود');
+  }
+}
+
+function moveChecklistItem(entryId, index, step) {
+  const entry = entries.find(item => item.id === entryId);
+  const list = checklistFor(entry).slice();
+  const target = index + step;
+  if (!entry || target < 0 || target >= list.length) return;
+  [list[index], list[target]] = [list[target], list[index]];
+  saveChecklist(entryId, list);
+}
+
+async function addChecklistItem(event) {
+  event.preventDefault();
+  const entry = entries.find(item => item.id === activeDetailsEntryId);
+  const text = clampString(elements.entryChecklistInput.value, MAX_CHECKLIST_TEXT).trim();
+  if (!entry || !text) return;
+  if (checklistFor(entry).length >= MAX_CHECKLIST_ITEMS) {
+    showToast(`الحد ${formatNumber(MAX_CHECKLIST_ITEMS)} بندًا.`);
+    return;
+  }
+  await saveChecklist(entry.id, [...checklistFor(entry), { id: uid('item'), text, done: false }]);
+  elements.entryChecklistInput.value = '';
+  elements.entryChecklistInput.focus();
 }
 
 function openEntryDetails(entryId) {
@@ -3274,7 +3562,7 @@ async function createEntry(data, attachmentDrafts = []) {
   const createdLocal = localCreationStamp(createdAt);
   const topDate = data.topTodayDate || null;
   if (topDate && !canAddTop(topDate)) {
-    showToast('لا يمكن إضافة مهمة رابعة إلى أهم اليوم.');
+    showToast(`أهم اليوم ممتلئ (${formatNumber(topLimitValue())}).`);
     return null;
   }
   let entry = {
@@ -3293,8 +3581,10 @@ async function createEntry(data, attachmentDrafts = []) {
     person: canonicalFromExisting(data.person, 'person'),
     dueDate: validDateKey(data.dueDate),
     followUpDate: data.followUpDate === undefined
-      ? resolveReturnSchedule(defaultReturnSchedule()).date
+      ? defaultCaptureReturnDate()
       : validDateKey(data.followUpDate),
+    followUpAt: validFollowUpAt(data.followUpAt),
+    checklist: sanitizeChecklist(data.checklist),
     topTodayDate: validDateKey(topDate),
     legacy: data.legacy || { source: null, state: null }
   };
@@ -3349,7 +3639,7 @@ async function updateEntry(id, patch, { extraEvent = null } = {}) {
   if (!current) return null;
   const nextTopDate = patch.topTodayDate === undefined ? current.topTodayDate : validDateKey(patch.topTodayDate);
   if (nextTopDate && nextTopDate !== current.topTodayDate && !canAddTop(nextTopDate, id)) {
-    showToast('لا يمكن إضافة مهمة رابعة إلى أهم اليوم.');
+    showToast(`أهم اليوم ممتلئ (${formatNumber(topLimitValue())}).`);
     return null;
   }
   let updated = buildUpdatedEntry(current, patch);
@@ -3386,6 +3676,10 @@ function buildUpdatedEntry(current, patch) {
     person: patch.person === undefined ? current.person : canonicalFromExisting(patch.person, 'person'),
     dueDate: patch.dueDate === undefined ? current.dueDate : validDateKey(patch.dueDate),
     followUpDate: patch.followUpDate === undefined ? current.followUpDate : validDateKey(patch.followUpDate),
+    followUpAt: patch.followUpAt !== undefined
+      ? validFollowUpAt(patch.followUpAt)
+      : (patch.followUpDate !== undefined ? null : validFollowUpAt(current.followUpAt)),
+    checklist: patch.checklist === undefined ? checklistFor(current) : sanitizeChecklist(patch.checklist),
     topTodayDate: nextTopDate,
     completedAt: status === 'done' ? (current.completedAt || now) : null,
     deletedAt: status === 'trash' ? (current.deletedAt || now) : null,
@@ -3463,7 +3757,9 @@ function hideCaptureReturnConfirmation() {
 
 function showCaptureReturnConfirmation(entry, duration = 10_000) {
   clearTimeout(captureReturnTimer);
-  elements.captureReturnText.textContent = `حُفظت · تعود ${returnDateSummary(entry.followUpDate)}`;
+  elements.captureReturnText.textContent = entry.followUpDate
+    ? `حُفظت · تعود ${returnMomentSummary(entry.followUpDate, entry.followUpAt)}`
+    : 'حُفظت · بلا موعد عودة';
   elements.captureReturnChangeButton.dataset.entryId = entry.id;
   elements.captureReturnBar.hidden = false;
   captureReturnTimer = setTimeout(() => {
@@ -3472,7 +3768,10 @@ function showCaptureReturnConfirmation(entry, duration = 10_000) {
 }
 
 function updateEditReturnSummary() {
-  elements.editReturnSummary.textContent = returnDateSummary(elements.editReturnDate.value);
+  elements.editReturnSummary.textContent = returnMomentSummary(
+    elements.editReturnDate.value,
+    followUpMomentFor(elements.editReturnDate.value, elements.editReturnTime.value)
+  );
 }
 
 function setEditTopTodayState(selected) {
@@ -3487,14 +3786,14 @@ function renderReturnPicker() {
   if (!context) return;
   const selectedDate = validDateKey(context.selectedDate);
   const currentStrong = document.createElement('strong');
-  currentStrong.textContent = returnDateSummary(selectedDate);
+  currentStrong.textContent = returnMomentSummary(selectedDate, context.selectedAt);
   elements.returnPickerCurrent.replaceChildren(document.createTextNode('العودة الحالية: '), currentStrong);
   const schedules = resolvedReturnSchedules(context.entryId, dateKey(), { enforceCapacity: false });
   const buttons = schedules.map(schedule => {
     const button = document.createElement('button');
     button.type = 'button';
     button.className = 'return-picker-option';
-    button.setAttribute('aria-pressed', String(schedule.date === selectedDate));
+    button.setAttribute('aria-pressed', String(schedule.date === selectedDate && !context.selectedAt));
     const label = document.createElement('strong');
     label.textContent = schedule.label;
     const date = document.createElement('span');
@@ -3508,25 +3807,33 @@ function renderReturnPicker() {
   elements.returnPickerCustomDate.value = selectedDate && selectedDate >= dateKey()
     ? selectedDate
     : shiftDateKey(dateKey(), 1);
+  elements.returnPickerCustomTime.value = clockValue(validFollowUpAt(context.selectedAt));
 }
 
 function openReturnPicker(context) {
   activeReturnPicker = {
     mode: context.mode,
     entryId: context.entryId || null,
-    selectedDate: validDateKey(context.selectedDate)
+    selectedDate: validDateKey(context.selectedDate),
+    selectedAt: validFollowUpAt(context.selectedAt)
   };
   hideCaptureReturnConfirmation();
   renderReturnPicker();
   elements.returnPickerDialog.showModal();
 }
 
-async function applyReturnPickerDate(value) {
+async function applyReturnPickerDate(value, time = '') {
   const date = validDateKey(value);
   const context = activeReturnPicker;
   if (!date || !context) return;
+  const followUpAt = followUpMomentFor(date, time);
+  if (followUpAt && new Date(followUpAt).getTime() <= Date.now()) {
+    showToast('اختر ساعة لم تمضِ بعد.');
+    return;
+  }
   if (context.mode === 'edit') {
     elements.editReturnDate.value = date;
+    elements.editReturnTime.value = clockValue(followUpAt);
     updateEditReturnSummary();
     elements.returnPickerDialog.close();
     return;
@@ -3537,7 +3844,7 @@ async function applyReturnPickerDate(value) {
     return;
   }
   try {
-    const updated = await updateEntry(entry.id, { followUpDate: date });
+    const updated = await updateEntry(entry.id, { followUpDate: date, followUpAt });
     elements.returnPickerDialog.close();
     if (updated) showCaptureReturnConfirmation(updated, 4_500);
   } catch (error) {
@@ -3611,7 +3918,7 @@ async function addQuickTopTask() {
   if (!text) return;
   const today = dateKey();
   if (!canAddTop(today)) {
-    showToast('أزل أو استبدل مهمة قبل إضافة الرابعة.');
+    showToast('أهم اليوم ممتلئ؛ أزل مهمة أولًا.');
     return;
   }
   try {
@@ -3657,8 +3964,646 @@ async function saveDailyDirection(day, value, statusElement) {
   }
 }
 
-function openDirectionDialog() {
+// العبارات: تغذية يدوية أو لصق أو استيراد، وعبارة واحدة ثابتة لكل يوم مرساة تتغير مع بدايته.
+const QUOTE_REFLECTION_COLLECTION = 'خلاصاتي';
+const QUOTE_CAPTURES_COLLECTION = 'من التقاطاتي';
+const QUOTE_STARTER_COLLECTION = 'عبارات مرساة';
+const QUOTE_OF_DAY_SETTING = 'quoteOfDay';
+const DIRECTION_ARCHIVE_SETTING = 'directionArchivedThrough';
+const QUOTE_ROTATIONS = Object.freeze({
+  daily: 'مختلفة كل يوم',
+  leastRecent: 'الأقل ظهورًا أولًا',
+  sequential: 'بالترتيب'
+});
+const STARTER_QUOTES = Object.freeze([
+  { text: 'ما دوّنته لم يعد يدور في رأسك. دعه يرسو، وانتبه لما أمامك.', source: 'مرساة' },
+  { text: 'ثلاثة أشياء تكفي ليوم جيد؛ الباقي يعود في موعده.', source: 'مرساة' },
+  { text: 'لاحظ دون أن تحاكم. الملاحظة الصادقة أول الحسم.', source: 'مرساة' },
+  { text: 'قبل أن تبدأ: أين انتباهك الآن؟', source: 'مرساة' },
+  { text: 'التأجيل الثالث سؤال لا تقصير: ما الخطوة التالية بالضبط؟', source: 'مرساة' }
+]);
+
+let activeQuoteId = null;
+let directionQuoteId = null;
+const recordedQuoteDays = new Set();
+
+function quoteVisibleValue() { return settingsMap.get('quoteVisible') !== false; }
+function quoteRotationValue() {
+  const value = settingsMap.get('quoteRotation');
+  return Object.hasOwn(QUOTE_ROTATIONS, value) ? value : 'daily';
+}
+function quoteCollectionValue() { return clampString(settingsMap.get('quoteCollection'), MAX_QUOTE_SOURCE); }
+
+function normalizedQuoteText(text) {
+  return normalizeArabic(text).replace(/\s+/g, ' ').trim();
+}
+
+// FNV-1a 64-bit كالتطبيق الأصلي: ثابت بين مرات التشغيل.
+function stableQuoteHash(text) {
+  let hash = 0xcbf29ce484222325n;
+  for (const byte of new TextEncoder().encode(text)) {
+    hash = ((hash ^ BigInt(byte)) * 0x100000001b3n) & 0xffffffffffffffffn;
+  }
+  return hash;
+}
+
+function quoteByCreation(a, b) {
+  return a.createdAt === b.createdAt ? a.id.localeCompare(b.id) : a.createdAt.localeCompare(b.createdAt);
+}
+
+function pinnedQuote(day) {
+  return quotes
+    .filter(quote => quote.active && (quote.pinnedUntil || '') >= day)
+    .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))[0] || null;
+}
+
+function pickQuote(day, { rotation = quoteRotationValue(), previousId = null, ignorePinned = false } = {}) {
+  if (!ignorePinned) {
+    const pinned = pinnedQuote(day);
+    if (pinned) return pinned;
+  }
+  const active = quotes.filter(quote => quote.active);
+  const collection = quoteCollectionValue();
+  const inCollection = active.filter(quote => !collection || quote.collection === collection);
+  const pool = (inCollection.length ? inCollection : active).slice().sort(quoteByCreation);
+  if (!pool.length) return null;
+  const fresh = pool.length > 1 ? pool.filter(quote => quote.id !== previousId) : pool;
+  if (rotation === 'sequential') {
+    const index = pool.findIndex(quote => quote.id === previousId);
+    return index < 0 ? pool[0] : pool[(index + 1) % pool.length];
+  }
+  if (rotation === 'leastRecent') {
+    return fresh.slice().sort((a, b) => (a.lastShownDay || '').localeCompare(b.lastShownDay || '')
+      || a.createdAt.localeCompare(b.createdAt))[0];
+  }
+  return fresh[Number(stableQuoteHash(day) % BigInt(fresh.length))];
+}
+
+function storedQuoteOfDay() {
+  const [day, id] = String(settingsMap.get(QUOTE_OF_DAY_SETTING) || '').split('|');
+  return day && id ? { day, id } : null;
+}
+
+// عبارة اليوم تُختار مرة وتبقى طوال يوم مرساة، إلا إن ثُبّتت عبارة أخرى أو أُوقفت هذه.
+function quoteOfDay(day = dateKey()) {
+  const stored = storedQuoteOfDay();
+  if (stored?.day === day) {
+    const current = quotes.find(quote => quote.id === stored.id && quote.active);
+    if (current) {
+      const pinned = pinnedQuote(day);
+      return pinned && pinned.id !== current.id ? pinned : current;
+    }
+  }
+  return pickQuote(day, { previousId: stored?.id || null });
+}
+
+async function recordQuoteShown(quote, day) {
+  const stored = storedQuoteOfDay();
+  if (stored?.day === day && stored.id === quote.id && quote.lastShownDay === day) return;
+  const key = `${day}|${quote.id}`;
+  if (recordedQuoteDays.has(key)) return;
+  recordedQuoteDays.add(key);
+  const updated = quote.lastShownDay === day
+    ? quote
+    : { ...quote, lastShownDay: day, shownCount: (quote.shownCount || 0) + 1 };
+  try {
+    if (updated !== quote) await putQuoteRecords([updated]);
+    await putSetting(QUOTE_OF_DAY_SETTING, key);
+  } catch (error) {
+    recordedQuoteDays.delete(key);
+    console.warn(error);
+  }
+}
+
+async function putQuoteRecords(records) {
+  if (!records.length) return;
+  await runAtomicWrite(['quotes'], (stores, track) => {
+    records.forEach(record => track(stores.quotes.put(record)));
+  });
+  const byId = new Map(quotes.map(quote => [quote.id, quote]));
+  records.forEach(record => byId.set(record.id, record));
+  quotes = [...byId.values()];
+}
+
+// يضيف عبارات دون تكرار نص موجود، ويعيد عدد ما أُضيف فعلًا.
+async function addQuotes(items, collection = '') {
+  const known = new Set(quotes.map(quote => normalizedQuoteText(quote.text)));
+  const base = Date.now();
+  const records = [];
+  items.forEach((item, index) => {
+    const text = clampString(item.text, MAX_QUOTE_LENGTH).trim();
+    const key = normalizedQuoteText(text);
+    if (!key || known.has(key)) return;
+    known.add(key);
+    // فارق مللي ثانية يحفظ ترتيب الأسطر حتى تعمل «بالترتيب» كما كُتبت.
+    const stamp = new Date(base + index).toISOString();
+    records.push({
+      id: uid('quote'),
+      text,
+      source: clampString(item.source, MAX_QUOTE_SOURCE).trim(),
+      collection: clampString(item.collection ?? collection, MAX_QUOTE_SOURCE).trim(),
+      active: true,
+      pinnedUntil: null,
+      lastShownDay: null,
+      shownCount: 0,
+      createdAt: stamp,
+      updatedAt: stamp
+    });
+  });
+  await putQuoteRecords(records);
+  if (records.length) renderQuoteViews();
+  return records.length;
+}
+
+async function updateQuote(id, patch) {
+  const current = quotes.find(quote => quote.id === id);
+  if (!current) return null;
+  const updated = { ...current, ...patch, updatedAt: nowIso() };
+  await putQuoteRecords([updated]);
+  renderQuoteViews();
+  return updated;
+}
+
+async function deleteQuote(id) {
+  await runAtomicWrite(['quotes'], (stores, track) => track(stores.quotes.delete(id)));
+  quotes = quotes.filter(quote => quote.id !== id);
+  renderQuoteViews();
+}
+
+function renderQuoteViews() {
+  if (currentView === 'today') renderToday();
+  if (elements.quotesDialog.open) renderQuotesDialog();
+  renderQuoteSettings();
+}
+
+// العتبة: عبارة اليوم بخط هادئ قبل التوجّه، ولمسها يفتح ما يمكن فعله بها.
+function renderTodayQuote(day) {
+  const visible = quoteVisibleValue();
+  const quote = visible ? quoteOfDay(day) : null;
+  const showHint = visible && !quote && settingsMap.get('quoteHintDismissed') !== true;
+  elements.todayQuoteSection.hidden = !quote && !showHint;
+  elements.todayQuoteButton.hidden = !quote;
+  elements.todayQuoteHint.hidden = !showHint;
+  activeQuoteId = quote?.id || null;
+  if (!quote) return;
+  elements.todayQuoteText.textContent = `«${quote.text}»`;
+  elements.todayQuoteSource.textContent = quote.source;
+  elements.todayQuoteButton.setAttribute('aria-label', `عبارة اليوم: ${quote.text}. يفتح خيارات العبارة`);
+  recordQuoteShown(quote, day);
+}
+
+function quotePlainText(quote) {
+  return quote.source ? `${quote.text} — ${quote.source}` : quote.text;
+}
+
+function fillQuoteCard(container, quote) {
+  const source = document.createElement('small');
+  source.textContent = quote.source;
+  container.replaceChildren(document.createTextNode(quote.text), ...(quote.source ? [source] : []));
+}
+
+function openQuoteActions() {
+  const quote = quotes.find(item => item.id === activeQuoteId);
+  if (!quote) return;
+  fillQuoteCard(elements.quoteActionsPreview, quote);
+  elements.quotePinButton.textContent = quote.pinnedUntil && quote.pinnedUntil >= dateKey()
+    ? 'إلغاء التثبيت'
+    : 'ثبّتها هذا الأسبوع';
+  elements.quoteActionsDialog.showModal();
+}
+
+// «العبارة التالية» تتجاوز التثبيت لا المجموعة، وتقدّم الأقل ظهورًا أو التالية بالترتيب.
+async function advanceQuote() {
+  const day = dateKey();
+  const current = quotes.find(quote => quote.id === activeQuoteId);
+  if (current?.pinnedUntil) await updateQuote(current.id, { pinnedUntil: null });
+  const next = pickQuote(day, {
+    rotation: quoteRotationValue() === 'sequential' ? 'sequential' : 'leastRecent',
+    previousId: activeQuoteId,
+    ignorePinned: true
+  });
+  elements.quoteActionsDialog.close();
+  if (!next) return;
+  recordedQuoteDays.delete(`${day}|${next.id}`);
+  const updated = next.lastShownDay === day ? next : { ...next, lastShownDay: day, shownCount: (next.shownCount || 0) + 1 };
+  await putQuoteRecords([updated]);
+  await putSetting(QUOTE_OF_DAY_SETTING, `${day}|${next.id}`);
+  renderQuoteViews();
+}
+
+async function togglePinQuote() {
+  const quote = quotes.find(item => item.id === activeQuoteId);
+  if (!quote) return;
+  const day = dateKey();
+  elements.quoteActionsDialog.close();
+  if (quote.pinnedUntil && quote.pinnedUntil >= day) {
+    await updateQuote(quote.id, { pinnedUntil: null });
+    showToast('أُلغي التثبيت.');
+    return;
+  }
+  // سبعة أيام مرساة تبدأ من اليوم.
+  await updateQuote(quote.id, { pinnedUntil: shiftDateKey(day, 6) });
+  await putSetting(QUOTE_OF_DAY_SETTING, `${day}|${quote.id}`);
+  renderQuoteViews();
+  showToast('ثُبّتت العبارة حتى نهاية الأسبوع.');
+}
+
+async function muteActiveQuote() {
+  const quote = quotes.find(item => item.id === activeQuoteId);
+  elements.quoteActionsDialog.close();
+  if (!quote) return;
+  await updateQuote(quote.id, { active: false });
+  showToast('أُوقفت العبارة. يمكن إعادتها من إدارة العبارات.');
+}
+
+// سطر لكل عبارة. يتجاهل علامات القوائم والاقتباس، ويفصل المصدر بعد « — » أو « – » أو « - ».
+function parseQuoteLines(text) {
+  return String(text || '').split(/\r?\n/).map(raw => {
+    let line = raw.trim();
+    for (const marker of ['- ', '* ', '• ', '> ', '– ', '— ']) {
+      if (line.startsWith(marker)) line = line.slice(marker.length).trim();
+    }
+    line = line.replace(/^\d{1,3}[.)]\s+/, '');
+    if (!line || line.startsWith('#')) return null;
+    let source = '';
+    for (const separator of [' — ', ' – ', ' - ']) {
+      const index = line.lastIndexOf(separator);
+      if (index < 0) continue;
+      const candidate = line.slice(index + separator.length).trim();
+      const body = line.slice(0, index).trim();
+      if (candidate && candidate.length <= 80 && body) {
+        source = candidate;
+        line = body;
+      }
+      break;
+    }
+    for (const [open, close] of [['«', '»'], ['"', '"'], ['“', '”']]) {
+      if (line.length > 2 && line.startsWith(open) && line.endsWith(close)) line = line.slice(1, -1);
+    }
+    return { text: line, source };
+  }).filter(Boolean);
+}
+
+// CSV بأعمدة: النص، المصدر، المجموعة، مع الحقول بين علامتي تنصيص والفواصل داخلها.
+function parseQuoteCsv(text) {
+  const rows = [];
+  let row = [];
+  let field = '';
+  let quoted = false;
+  const source = String(text || '');
+  for (let index = 0; index < source.length; index += 1) {
+    const character = source[index];
+    if (quoted) {
+      if (character === '"' && source[index + 1] === '"') { field += '"'; index += 1; }
+      else if (character === '"') quoted = false;
+      else field += character;
+    } else if (character === '"') quoted = true;
+    else if (character === ',') { row.push(field); field = ''; }
+    else if (character === '\n' || character === '\r') {
+      if (character === '\r' && source[index + 1] === '\n') index += 1;
+      row.push(field); field = '';
+      rows.push(row); row = [];
+    } else field += character;
+  }
+  if (field || row.length) { row.push(field); rows.push(row); }
+  const header = String(rows[0]?.[0] || '').trim().toLowerCase();
+  if (['text', 'quote', 'النص', 'العبارة'].includes(header)) rows.shift();
+  return rows.map(columns => ({
+    text: String(columns[0] || '').trim(),
+    source: String(columns[1] || '').trim(),
+    collection: String(columns[2] || '').trim()
+  })).filter(item => item.text);
+}
+
+async function importQuoteFile(file) {
+  if (!file) return;
+  try {
+    if (file.size > 5 * 1024 * 1024) throw new Error('الملف أكبر من 5 MB.');
+    const text = await file.text();
+    const isCsv = /\.csv$/i.test(file.name);
+    const items = isCsv
+      ? parseQuoteCsv(text).map(item => ({ ...item, collection: item.collection || '' }))
+      : parseQuoteLines(text);
+    const added = await addQuotes(items, '');
+    showToast(added ? `أُضيفت ${formatNumber(added)} عبارة.` : 'لا عبارات جديدة في الملف.');
+  } catch (error) {
+    reportStorageFailure(error, 'استيراد العبارات');
+  } finally {
+    elements.quoteImportInput.value = '';
+  }
+}
+
+function quoteCollections() {
+  return [...new Set(quotes.map(quote => quote.collection).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'ar'));
+}
+
+function renderQuotesDialog() {
+  const groups = new Map();
+  quotes.slice().sort(quoteByCreation).forEach(quote => {
+    const key = quote.collection || '';
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(quote);
+  });
+  const day = dateKey();
+  const sections = [...groups.entries()]
+    .sort(([a], [b]) => (a === '' ? 1 : b === '' ? -1 : a.localeCompare(b, 'ar')))
+    .map(([name, list]) => {
+      const section = document.createElement('section');
+      section.className = 'quotes-group';
+      const heading = document.createElement('h3');
+      heading.textContent = `${name || 'بلا مجموعة'} · ${formatNumber(list.length)}`;
+      section.append(heading, ...list.map(quote => {
+        const row = document.createElement('button');
+        row.type = 'button';
+        row.className = `quote-row${quote.active ? '' : ' is-muted'}`;
+        row.dir = 'auto';
+        const text = document.createElement('span');
+        text.textContent = quote.text;
+        const meta = document.createElement('small');
+        meta.textContent = [
+          quote.source,
+          quote.pinnedUntil && quote.pinnedUntil >= day ? 'مثبّتة' : '',
+          quote.active ? '' : 'موقوفة'
+        ].filter(Boolean).join(' · ');
+        row.append(text, ...(meta.textContent ? [meta] : []));
+        row.addEventListener('click', () => openQuoteEditor(quote.id));
+        return row;
+      }));
+      return section;
+    });
+  elements.quotesList.replaceChildren(...(sections.length ? sections : [emptyNode('لا عبارات بعد. أضف عبارة أو الصق عدة عبارات أو ابدأ بعبارات مرساة.')]));
+  elements.quoteStarterButton.hidden = quotes.some(quote => quote.collection === QUOTE_STARTER_COLLECTION);
+  elements.quoteCollectionsList.replaceChildren(...quoteCollections().map(name => {
+    const option = document.createElement('option');
+    option.value = name;
+    return option;
+  }));
+}
+
+function openQuotesDialog() {
+  renderQuotesDialog();
+  if (!elements.quotesDialog.open) elements.quotesDialog.showModal();
+}
+
+function openQuoteEditor(id = null) {
+  const quote = id ? quotes.find(item => item.id === id) : null;
+  elements.quoteEditTitle.textContent = quote ? 'تعديل العبارة' : 'عبارة جديدة';
+  elements.quoteEditId.value = quote?.id || '';
+  elements.quoteEditText.value = quote?.text || '';
+  elements.quoteEditSource.value = quote?.source || '';
+  elements.quoteEditCollection.value = quote?.collection || '';
+  elements.quoteEditActive.checked = quote ? quote.active : true;
+  elements.quoteDeleteButton.hidden = !quote;
+  elements.quoteEditDialog.showModal();
+  setTimeout(() => elements.quoteEditText.focus(), 80);
+}
+
+async function handleQuoteEditSubmit(event) {
+  event.preventDefault();
+  const id = elements.quoteEditId.value;
+  const text = clampString(elements.quoteEditText.value, MAX_QUOTE_LENGTH).trim();
+  if (!text) return;
+  const source = clampString(elements.quoteEditSource.value, MAX_QUOTE_SOURCE).trim();
+  const collection = clampString(elements.quoteEditCollection.value, MAX_QUOTE_SOURCE).trim();
+  try {
+    if (id) {
+      const duplicate = quotes.some(quote => quote.id !== id && normalizedQuoteText(quote.text) === normalizedQuoteText(text));
+      if (duplicate) {
+        showToast('العبارة موجودة من قبل.');
+        return;
+      }
+      await updateQuote(id, { text, source, collection, active: elements.quoteEditActive.checked });
+    } else {
+      const added = await addQuotes([{ text, source, collection }], collection);
+      if (!added) {
+        showToast('العبارة موجودة من قبل.');
+        return;
+      }
+      if (!elements.quoteEditActive.checked) {
+        const created = quotes.find(quote => normalizedQuoteText(quote.text) === normalizedQuoteText(text));
+        if (created) await updateQuote(created.id, { active: false });
+      }
+    }
+    elements.quoteEditDialog.close();
+  } catch (error) {
+    reportStorageFailure(error, 'حفظ العبارة');
+  }
+}
+
+async function deleteEditedQuote() {
+  const quote = quotes.find(item => item.id === elements.quoteEditId.value);
+  if (!quote) return;
+  const approved = await askConfirm({ title: 'حذف العبارة', message: 'تُحذف العبارة نهائيًا.', preview: quote.text });
+  if (!approved) return;
+  try {
+    await deleteQuote(quote.id);
+    elements.quoteEditDialog.close();
+  } catch (error) {
+    reportStorageFailure(error, 'حذف العبارة');
+  }
+}
+
+function updateQuoteBulkPreview() {
+  const count = parseQuoteLines(elements.quoteBulkText.value).length;
+  elements.quoteBulkPreview.textContent = count ? `${formatNumber(count)} عبارة جاهزة للإضافة.` : 'لا عبارات بعد.';
+}
+
+async function handleQuoteBulkSubmit(event) {
+  event.preventDefault();
+  const items = parseQuoteLines(elements.quoteBulkText.value);
+  if (!items.length) return;
+  try {
+    const added = await addQuotes(items, elements.quoteBulkCollection.value);
+    elements.quoteBulkDialog.close();
+    elements.quoteBulkText.value = '';
+    showToast(added ? `أُضيفت ${formatNumber(added)} عبارة.` : 'كل العبارات موجودة من قبل.');
+  } catch (error) {
+    reportStorageFailure(error, 'إضافة العبارات');
+  }
+}
+
+// نصوص الإغلاق غير الفارغة تدخل «خلاصاتي» دون تكرار.
+async function archiveDayTexts(day, { direction = '', reflection = '', tomorrow = '' }) {
+  const label = formatHeaderDayMonth(day);
+  return addQuotes([
+    { text: direction, source: `توجّه ${label}` },
+    { text: reflection, source: `خلاصة ${label}` },
+    { text: tomorrow, source: `توجّه الغد ${label}` }
+  ], QUOTE_REFLECTION_COLLECTION);
+}
+
+// توجّه الأيام الماضية يدخل العبارات ولو لم يُغلق يومه، مرة واحدة لكل يوم،
+// فعبارة حذفها المستخدم بعد أرشفتها لا تعود.
+async function archivePastDirections(today = dateKey()) {
+  const through = String(settingsMap.get(DIRECTION_ARCHIVE_SETTING) || '');
+  const days = dailyRecords
+    .filter(record => record.date > through && record.date < today)
+    .sort((a, b) => a.date.localeCompare(b.date));
+  if (!days.length) return 0;
+  const items = days
+    .filter(record => String(record.direction || '').trim())
+    .map(record => ({ text: record.direction, source: `توجّه ${formatHeaderDayMonth(record.date)}` }));
+  const added = items.length ? await addQuotes(items, QUOTE_REFLECTION_COLLECTION) : 0;
+  await putSetting(DIRECTION_ARCHIVE_SETTING, days[days.length - 1].date);
+  return added;
+}
+
+function renderQuoteSettings() {
+  elements.quoteVisibleSetting.checked = quoteVisibleValue();
+  elements.quoteRotationSetting.value = quoteRotationValue();
+  const collections = quoteCollections();
+  const current = quoteCollectionValue();
+  const options = [['', 'كل العبارات'], ...collections.map(name => [name, name])];
+  if (current && !collections.includes(current)) options.push([current, current]);
+  elements.quoteCollectionSetting.replaceChildren(...options.map(([value, label]) => {
+    const option = document.createElement('option');
+    option.value = value;
+    option.textContent = label;
+    return option;
+  }));
+  elements.quoteCollectionSetting.value = current;
+  elements.quoteSettingsStatus.textContent = quotes.length
+    ? `${formatNumber(quotes.filter(quote => quote.active).length)} عبارة نشطة من ${formatNumber(quotes.length)}.`
+    : 'لا عبارات بعد.';
+}
+
+// تخصيص شاشة «اليوم» بالمفتاح todayLayout نفسه في التطبيق الأصلي، فينتقل في نسخة JSON بين الطرفين.
+const TODAY_LAYOUT_SETTING = 'todayLayout';
+const TODAY_MODULES = Object.freeze({
+  quote: 'عبارة اليوم',
+  direction: 'توجّه اليوم',
+  session: 'جلسة مرساة (في يومها)',
+  top: 'أهم اليوم',
+  returns: 'عاد اليوم',
+  log: 'سجل اليوم',
+  closure: 'إغلاق اليوم'
+});
+const FIXED_TODAY_MODULES = new Set(['top', 'closure']);
+
+function defaultTodayLayout() {
+  return {
+    order: Object.keys(TODAY_MODULES),
+    hidden: [],
+    density: 'compact',
+    showPath: true,
+    showReturnDate: true,
+    returnsVisible: 5,
+    eveningRhythm: true
+  };
+}
+
+// كل قسم مرة واحدة: قسم جديد في إصدار لاحق يُضاف قبل «إغلاق اليوم»، والمكرر يُحذف.
+function normalizedTodayLayout(value) {
+  const base = defaultTodayLayout();
+  const source = value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+  const order = [...new Set((Array.isArray(source.order) ? source.order : []).filter(key => Object.hasOwn(TODAY_MODULES, key)))];
+  for (const key of Object.keys(TODAY_MODULES)) {
+    if (order.includes(key)) continue;
+    const closure = order.indexOf('closure');
+    if (closure < 0) order.push(key);
+    else order.splice(closure, 0, key);
+  }
+  // مفاتيح لا يعرفها الويب تبقى كما هي لتعود إلى التطبيق الأصلي في النسخة.
+  return {
+    ...source,
+    order,
+    hidden: [...new Set((Array.isArray(source.hidden) ? source.hidden : [])
+      .filter(key => Object.hasOwn(TODAY_MODULES, key) && !FIXED_TODAY_MODULES.has(key)))],
+    density: source.density === 'comfortable' ? 'comfortable' : base.density,
+    showPath: source.showPath !== false,
+    showReturnDate: source.showReturnDate !== false,
+    returnsVisible: [0, 3, 5].includes(source.returnsVisible) ? source.returnsVisible : base.returnsVisible,
+    eveningRhythm: source.eveningRhythm !== false
+  };
+}
+
+function todayLayout() {
+  return normalizedTodayLayout(settingsMap.get(TODAY_LAYOUT_SETTING));
+}
+
+async function saveTodayLayout(layout) {
+  try {
+    await putSetting(TODAY_LAYOUT_SETTING, normalizedTodayLayout(layout));
+    renderToday();
+    if (elements.todayLayoutDialog.open) renderTodayLayoutDialog();
+  } catch (error) {
+    reportStorageFailure(error, 'حفظ تخصيص اليوم');
+  }
+}
+
+// المساء قبل وقت الإغلاق بساعة ونصف حتى بداية يوم مرساة؛ يصعد فيه «إغلاق اليوم» ما لم يُغلق.
+function isEveningPhase(now = new Date()) {
+  const closure = integerSetting('closureReminderMinutes', 21 * 60 + 30, 0, 1439);
+  const minutes = now.getHours() * 60 + now.getMinutes();
+  return minutes < dayStartHourValue() * 60 || minutes >= Math.max(12 * 60, closure - 90);
+}
+
+function arrangedTodayModules(layout, today) {
+  const modules = layout.order.filter(key => FIXED_TODAY_MODULES.has(key) || !layout.hidden.includes(key));
+  if (!layout.eveningRhythm || !isEveningPhase() || dayClosureFor(today)) return modules;
+  const rest = modules.filter(key => key !== 'closure');
+  const anchor = Math.max(rest.lastIndexOf('quote'), rest.lastIndexOf('direction')) + 1;
+  rest.splice(anchor, 0, 'closure');
+  return rest;
+}
+
+function applyTodayLayout(today) {
+  const layout = todayLayout();
+  const visible = arrangedTodayModules(layout, today);
+  const view = elements.todayView;
+  const nodes = new Map([...view.querySelectorAll(':scope > [data-module]')].map(node => [node.dataset.module, node]));
+  [...visible, ...layout.order.filter(key => !visible.includes(key))].forEach(key => {
+    const node = nodes.get(key);
+    if (!node) return;
+    node.toggleAttribute('data-module-hidden', !visible.includes(key));
+    view.append(node);
+  });
+}
+
+function renderTodayLayoutDialog() {
+  const layout = todayLayout();
+  elements.todayLayoutList.replaceChildren(...layout.order.map((key, index) => {
+    const row = document.createElement('li');
+    row.className = 'layout-row';
+    const toggle = document.createElement('input');
+    toggle.type = 'checkbox';
+    toggle.checked = !layout.hidden.includes(key);
+    toggle.disabled = FIXED_TODAY_MODULES.has(key);
+    toggle.setAttribute('aria-label', `إظهار ${TODAY_MODULES[key]}`);
+    toggle.addEventListener('change', () => {
+      const hidden = toggle.checked ? layout.hidden.filter(item => item !== key) : [...layout.hidden, key];
+      saveTodayLayout({ ...layout, hidden });
+    });
+    const label = document.createElement('span');
+    label.textContent = TODAY_MODULES[key];
+    const tools = document.createElement('span');
+    tools.className = 'checklist-tools';
+    const move = step => {
+      const order = layout.order.slice();
+      [order[index], order[index + step]] = [order[index + step], order[index]];
+      saveTodayLayout({ ...layout, order });
+    };
+    tools.append(
+      checklistTool('↑', `تقديم ${TODAY_MODULES[key]}`, index === 0, () => move(-1)),
+      checklistTool('↓', `تأخير ${TODAY_MODULES[key]}`, index === layout.order.length - 1, () => move(1))
+    );
+    row.append(toggle, label, tools);
+    return row;
+  }));
+  elements.todayLayoutEvening.checked = layout.eveningRhythm;
+  elements.todayLayoutReturns.value = String(layout.returnsVisible);
+}
+
+function openTodayLayoutDialog() {
+  renderTodayLayoutDialog();
+  elements.todayLayoutDialog.showModal();
+}
+
+function openDirectionDialog({ quoteId = null } = {}) {
   elements.directionEditor.value = dailyRecordFor(dateKey())?.direction || '';
+  const quote = quoteId ? quotes.find(item => item.id === quoteId) : null;
+  elements.directionQuotePreview.hidden = !quote;
+  if (quote) fillQuoteCard(elements.directionQuotePreview, quote);
   elements.directionDialog.showModal();
   setTimeout(() => elements.directionEditor.focus(), 80);
 }
@@ -3737,6 +4682,11 @@ async function saveEveningClose({ withBackup = false } = {}) {
     refreshDataViews();
     elements.eveningCloseDialog.close();
     showToast(withBackup ? 'تم إغلاق اليوم. اختر مكان حفظ النسخة.' : 'تم إغلاق اليوم.');
+    archiveDayTexts(today, {
+      direction: todayRecord.direction || '',
+      reflection,
+      tomorrow: tomorrowDirection
+    }).catch(error => console.warn(error));
   } catch (error) {
     reportStorageFailure(error, 'إغلاق اليوم');
     return false;
@@ -3809,16 +4759,15 @@ async function handleCaptureSubmit(event) {
   elements.captureStatus.hidden = false;
   let entry;
   try {
-    const defaultReturn = resolveReturnSchedule(defaultReturnSchedule());
     entry = await createEntry({
       text: elements.captureText.value,
       type: 'note',
-      path: 'consider',
+      path: defaultPathPreference(),
       status: 'open',
       context: '',
       person: '',
       dueDate: null,
-      followUpDate: defaultReturn.date,
+      followUpDate: defaultCaptureReturnDate(),
       topTodayDate: null
     }, captureDraftAttachments);
   } catch (error) {
@@ -4040,6 +4989,7 @@ function openEditDialog(entryId, { unlockText = false } = {}) {
   fillSelect(elements.editPath, editPathOptions);
   elements.editPath.value = hasOwn(editPathOptions, entry.path) ? entry.path : 'untriaged';
   elements.editReturnDate.value = validDateKey(entry.followUpDate) || '';
+  elements.editReturnTime.value = followUpTimeLabel(entry);
   updateEditReturnSummary();
   updateEditPathAgeHint(entry);
   elements.editEntryAge.querySelector('strong').textContent = ageDaysLabel(entryAgeDays(entry));
@@ -4121,13 +5071,14 @@ async function handleEditSubmit(event) {
     ? today
     : (current.topTodayDate === today ? null : current.topTodayDate);
   if (topTodayDate && topTodayDate !== current.topTodayDate && !canAddTop(topTodayDate, id)) {
-    showToast('لا يمكن إضافة مهمة رابعة إلى أهم اليوم.');
+    showToast(`أهم اليوم ممتلئ (${formatNumber(topLimitValue())}).`);
     return;
   }
   let updated = buildUpdatedEntry(current, {
     text,
     path: elements.editPath.value,
     followUpDate: elements.editReturnDate.value || null,
+    followUpAt: followUpMomentFor(elements.editReturnDate.value, elements.editReturnTime.value),
     topTodayDate
   });
   const now = nowIso();
@@ -4178,7 +5129,7 @@ async function deleteEditedEntry() {
 }
 
 async function cleanOldTrash() {
-  const cutoff = Date.now() - TRASH_RETENTION_DAYS * DAY;
+  const cutoff = Date.now() - trashDaysValue() * DAY;
   const expired = entries.filter(entry => entry.status === 'trash' && entry.deletedAt && new Date(entry.deletedAt).getTime() < cutoff);
   if (!expired.length) return;
   await deleteEntriesCompletely(expired.map(entry => entry.id));
@@ -4187,9 +5138,17 @@ async function cleanOldTrash() {
 
 function renderSettingsState() {
   elements.weeklySessionDay.value = String(weeklySessionDayValue());
+  elements.dayStartHour.value = String(dayStartHourValue());
+  elements.topLimitSetting.value = String(topLimitValue());
+  elements.rewriteThresholdSetting.value = String(rewriteThresholdValue());
+  elements.dayCapacitySetting.value = String(dayCapacityValue());
+  elements.defaultReturnSetting.value = defaultReturnPreference();
+  elements.defaultPathSetting.value = defaultPathPreference();
+  elements.trashDaysSetting.value = String(trashDaysValue());
+  renderQuoteSettings();
   const trash = trashEntries();
   elements.trashStatus.textContent = trash.length
-    ? `${trash.length} عناصر؛ تُحذف نهائيًا بعد ${TRASH_RETENTION_DAYS} أيام.`
+    ? `${trash.length} عناصر؛ تُحذف نهائيًا بعد ${trashDaysValue()} يومًا.`
     : 'لا توجد عناصر محذوفة.';
   elements.restoreTrashButton.disabled = !trash.length;
   elements.emptyTrashButton.disabled = !trash.length;
@@ -4201,10 +5160,36 @@ async function saveWeeklySessionDay() {
   elements.weeklySessionDay.value = String(next);
   try {
     await putSetting('weeklySessionDay', next);
+    // الاسم الأصلي يُحدَّث معه حتى لا تعيد نسخة قديمة منه يومًا آخر في التطبيق الأصلي.
+    await putSetting('reviewWeekday', next + 1);
     renderToday();
   } catch (error) {
     elements.weeklySessionDay.value = String(previous);
     reportStorageFailure(error, 'حفظ يوم جلسة مرساة');
+  }
+}
+
+// تفضيل بسيط من قائمة: يُحفظ بقيمته الصالحة، ويُعاد الحقل إلى السابق إن فشل الحفظ.
+async function savePreference(key, value, label) {
+  try {
+    await putSetting(key, value);
+    refreshDataViews();
+  } catch (error) {
+    renderSettingsState();
+    reportStorageFailure(error, label);
+  }
+}
+
+async function saveDayStartHour() {
+  const previous = dayStartHourValue();
+  const next = dayStartHourValue(elements.dayStartHour.value);
+  elements.dayStartHour.value = String(next);
+  try {
+    await putSetting('dayStartHour', next);
+    refreshDataViews();
+  } catch (error) {
+    elements.dayStartHour.value = String(previous);
+    reportStorageFailure(error, 'حفظ بداية يوم مرساة');
   }
 }
 
@@ -4216,9 +5201,9 @@ function trashEntries() {
 
 function trashDaysRemaining(entry) {
   const deletedAt = validIso(entry.deletedAt) || validIso(entry.updatedAt);
-  if (!deletedAt) return TRASH_RETENTION_DAYS;
+  if (!deletedAt) return trashDaysValue();
   const elapsedDays = Math.max(0, Math.floor((Date.now() - new Date(deletedAt).getTime()) / DAY));
-  return Math.max(0, TRASH_RETENTION_DAYS - elapsedDays);
+  return Math.max(0, trashDaysValue() - elapsedDays);
 }
 
 function statusBeforeTrash(entry) {
@@ -4558,7 +5543,8 @@ async function buildBackupFiles(stamp) {
       entries: index === 0 ? exportEntries : [],
       attachments: attachmentRows,
       daily: index === 0 ? dailyRecords : [],
-      settings: index === 0 ? settings : []
+      settings: index === 0 ? settings : [],
+      quotes: index === 0 ? quotes : []
     };
     partDescriptors.push({
       group: groups[index],
@@ -4767,6 +5753,12 @@ function buildMarkdown() {
       sections.push('');
     });
   });
+  if (quotes.length) {
+    sections.push('# العبارات', '');
+    quotes.slice().sort((a, b) => a.collection.localeCompare(b.collection, 'ar') || quoteByCreation(a, b)).forEach(quote => {
+      sections.push(`> ${escapeMarkdown(quote.text)}${quote.source ? ` — ${escapeMarkdown(quote.source)}` : ''}`, '');
+    });
+  }
   return sections.join('\n');
 }
 
@@ -4777,7 +5769,8 @@ function markdownEntry(entry, checkbox) {
   if (entry.person) parts.push(`@${escapeMarkdown(entry.person)}`);
   const names = attachmentsFor(entry.id).map(item => item.name).join(', ');
   if (names) parts.push(`مرفقات: ${escapeMarkdown(names)}`);
-  return `${box} ${formatEntryTime(entry)} — ${parts.join(' · ')}`;
+  const items = checklistFor(entry).map(item => `    - [${item.done ? 'x' : ' '}] ${escapeMarkdown(item.text)}`);
+  return [`${box} ${formatEntryTime(entry)} — ${parts.join(' · ')}`, ...items].join('\n');
 }
 
 function contextTag(context) {
@@ -4854,17 +5847,18 @@ async function importJsonFiles(fileList) {
       danger: false
     });
     if (!approved) return;
-    const importBatch = { entries: [], attachments: [], daily: [], settings: [] };
+    const importBatch = { entries: [], attachments: [], daily: [], settings: [], quotes: [] };
     for (const descriptor of ordered) {
       const batch = await normalizeImportPayload(descriptor.data, {
         verifyAttachmentIntegrity: false,
         prevalidatedAttachments: descriptor.normalizedAttachments
       });
-      for (const storeName of ['entries', 'attachments', 'daily', 'settings']) {
-        for (const value of batch[storeName]) importBatch[storeName].push(value);
+      for (const storeName of ['entries', 'attachments', 'daily', 'settings', 'quotes']) {
+        for (const value of batch[storeName] || []) importBatch[storeName].push(value);
       }
     }
-    const importedRecords = importBatch.entries.length + importBatch.attachments.length + importBatch.daily.length;
+    const importedRecords = importBatch.entries.length + importBatch.attachments.length
+      + importBatch.daily.length + importBatch.quotes.length;
     await writeImportBatch(importBatch);
     importCommitted = true;
     await recordBackupVerification(report);
@@ -5148,13 +6142,18 @@ async function normalizeImportPayload(data, {
   const existingEntries = new Map(entries.map(entry => [entry.id, entry]));
   const existingDaily = new Map(dailyRecords.map(record => [record.date, record]));
   const existingSettings = new Map(settings.map(setting => [setting.key, setting]));
+  const existingQuotes = new Map(quotes.map(quote => [quote.id, quote]));
+  const importedSettings = withNativeSettingAliases(Array.isArray(data.settings) ? data.settings : []);
   const batch = {
     entries: data.entries
       .map((entry, index) => sanitizeImportedEntry(entry, `الإدخال ${index + 1}`))
       .filter(entry => shouldImport(entry, existingEntries.get(entry.id))),
     attachments: normalizedAttachments,
     daily: (Array.isArray(data.daily) ? data.daily : []).map(sanitizeImportedDaily).filter(record => record && shouldImport(record, existingDaily.get(record.date))),
-    settings: (Array.isArray(data.settings) ? data.settings : []).map(sanitizeImportedSetting).filter(setting => setting && shouldImport(setting, existingSettings.get(setting.key)))
+    settings: importedSettings.map(sanitizeImportedSetting).filter(setting => setting && shouldImport(setting, existingSettings.get(setting.key))),
+    quotes: (Array.isArray(data.quotes) ? data.quotes : [])
+      .map((quote, index) => sanitizeImportedQuote(quote, `العبارة ${index + 1}`))
+      .filter(quote => shouldImport(quote, existingQuotes.get(quote.id)))
   };
   return batch;
 }
@@ -5432,7 +6431,12 @@ function sanitizeImportedEntry(entry, label = 'الإدخال') {
     context: clampString(entry?.context, MAX_SHORT_TEXT),
     person: clampString(entry?.person, MAX_SHORT_TEXT),
     dueDate: validDateKey(entry?.dueDate),
-    followUpDate: validDateKey(entry?.followUpDate),
+    // التطبيق الأصلي يحفظ الموعد الدقيق في followUpAt؛ يومه المدني هو followUpDate.
+    followUpDate: validFollowUpAt(entry?.followUpAt)
+      ? civilDateKey(validFollowUpAt(entry.followUpAt))
+      : validDateKey(entry?.followUpDate),
+    followUpAt: validFollowUpAt(entry?.followUpAt),
+    checklist: sanitizeChecklist(entry?.checklist),
     topTodayDate: validDateKey(entry?.topTodayDate),
     legacy: {
       source: entry?.legacy?.source || null,
@@ -5560,6 +6564,44 @@ function sanitizeImportedDaily(record) {
     direction: clampString(record?.direction, MAX_DIRECTION_LENGTH),
     topEntryIds: Array.isArray(record?.topEntryIds) ? record.topEntryIds.map(id => safeId(id, 'entry')).slice(0, 3) : [],
     closure: sanitizeImportedDayClosure(record?.closure, key, updatedAt),
+    createdAt,
+    updatedAt
+  };
+}
+
+// التطبيق الأصلي يسمّي يوم الجلسة reviewWeekday (الأحد = 1) والمظهر appearance؛ الويب يقرأ weeklySessionDay وtheme.
+function withNativeSettingAliases(rows) {
+  const keys = new Set(rows.map(row => row?.key));
+  const aliases = [];
+  for (const row of rows) {
+    if (row?.key === 'reviewWeekday' && !keys.has('weeklySessionDay')) {
+      const day = Number(row.value);
+      if (Number.isInteger(day) && day >= 1 && day <= 7) {
+        aliases.push({ key: 'weeklySessionDay', value: day - 1, updatedAt: row.updatedAt });
+      }
+    }
+    if (row?.key === 'appearance' && !keys.has('theme') && ['light', 'dark'].includes(row.value)) {
+      aliases.push({ key: 'theme', value: row.value, updatedAt: row.updatedAt });
+    }
+  }
+  return [...rows, ...aliases];
+}
+
+function sanitizeImportedQuote(quote, label = 'العبارة') {
+  const text = clampString(quote?.text, MAX_QUOTE_LENGTH).trim();
+  if (!text || !clampString(quote?.id, MAX_ID_LENGTH)) throw new Error(`${label}: النص أو المعرّف مفقود.`);
+  const createdAt = validIso(quote?.createdAt) || nowIso();
+  const updatedAt = validIso(quote?.updatedAt) || createdAt;
+  const shownCount = Number(quote?.shownCount);
+  return {
+    id: safeId(quote.id, 'quote'),
+    text,
+    source: clampString(quote?.source, MAX_QUOTE_SOURCE).trim(),
+    collection: clampString(quote?.collection, MAX_QUOTE_SOURCE).trim(),
+    active: quote?.active !== false,
+    pinnedUntil: validDateKey(quote?.pinnedUntil),
+    lastShownDay: validDateKey(quote?.lastShownDay),
+    shownCount: Number.isInteger(shownCount) && shownCount > 0 ? shownCount : 0,
     createdAt,
     updatedAt
   };
@@ -5801,6 +6843,68 @@ function bindEvents() {
   elements.themeLightButton.addEventListener('click', () => selectTheme('light'));
   elements.themeDarkButton.addEventListener('click', () => selectTheme('dark'));
   elements.weeklySessionDay.addEventListener('change', saveWeeklySessionDay);
+  elements.dayStartHour.addEventListener('change', saveDayStartHour);
+  const preferenceSelects = [
+    [elements.topLimitSetting, 'topLimit', value => integerOf(value, 1, 3, 3), 'حفظ حد أهم اليوم'],
+    [elements.rewriteThresholdSetting, 'rewriteThreshold', value => integerOf(value, 2, 5, 3), 'حفظ دعوة إعادة الصياغة'],
+    [elements.dayCapacitySetting, 'dayCapacity', value => integerOf(value, 5, 12, 7), 'حفظ سعة اليوم'],
+    [elements.trashDaysSetting, 'trashDays', value => [7, 14, 30].includes(Number(value)) ? Number(value) : 7, 'حفظ مدة المحذوفات'],
+    [elements.defaultReturnSetting, 'defaultReturn', value => ['today', 'tomorrow', 'none'].includes(value) ? value : 'tomorrow', 'حفظ موعد العودة الافتراضي'],
+    [elements.defaultPathSetting, 'defaultPath', value => ['consider', 'do', 'waiting'].includes(value) ? value : 'consider', 'حفظ المسار الافتراضي'],
+    [elements.quoteRotationSetting, 'quoteRotation', value => Object.hasOwn(QUOTE_ROTATIONS, value) ? value : 'daily', 'حفظ تدوير العبارات'],
+    [elements.quoteCollectionSetting, 'quoteCollection', value => clampString(value, MAX_QUOTE_SOURCE), 'حفظ مجموعة العبارات']
+  ];
+  preferenceSelects.forEach(([select, key, parse, label]) => {
+    select.addEventListener('change', () => savePreference(key, parse(select.value), label));
+  });
+  elements.quoteVisibleSetting.addEventListener('change', () =>
+    savePreference('quoteVisible', elements.quoteVisibleSetting.checked, 'حفظ إظهار العبارة'));
+  elements.openQuotesButton.addEventListener('click', openQuotesDialog);
+  elements.openTodayLayoutButton.addEventListener('click', openTodayLayoutDialog);
+  elements.todayLayoutEvening.addEventListener('change', () =>
+    saveTodayLayout({ ...todayLayout(), eveningRhythm: elements.todayLayoutEvening.checked }));
+  elements.todayLayoutReturns.addEventListener('change', () =>
+    saveTodayLayout({ ...todayLayout(), returnsVisible: Number(elements.todayLayoutReturns.value) }));
+  elements.todayLayoutReset.addEventListener('click', () => saveTodayLayout(defaultTodayLayout()));
+  elements.todayQuoteButton.addEventListener('click', openQuoteActions);
+  elements.todayQuoteHintButton.addEventListener('click', openQuotesDialog);
+  elements.todayQuoteHintDismiss.addEventListener('click', () =>
+    savePreference('quoteHintDismissed', true, 'إخفاء اقتراح العبارات'));
+  elements.quoteNextButton.addEventListener('click', () => advanceQuote().catch(error => reportStorageFailure(error, 'تغيير العبارة')));
+  elements.quotePinButton.addEventListener('click', () => togglePinQuote().catch(error => reportStorageFailure(error, 'تثبيت العبارة')));
+  elements.quoteMuteButton.addEventListener('click', () => muteActiveQuote().catch(error => reportStorageFailure(error, 'إيقاف العبارة')));
+  elements.quoteDirectionButton.addEventListener('click', () => {
+    const quoteId = activeQuoteId;
+    elements.quoteActionsDialog.close();
+    openDirectionDialog({ quoteId });
+  });
+  elements.quoteCopyButton.addEventListener('click', async () => {
+    const quote = quotes.find(item => item.id === activeQuoteId);
+    elements.quoteActionsDialog.close();
+    if (quote) showToast(await copyPlainText(quotePlainText(quote)) ? 'نُسخت العبارة.' : 'تعذر النسخ.');
+  });
+  elements.quoteManageButton.addEventListener('click', () => {
+    elements.quoteActionsDialog.close();
+    openQuotesDialog();
+  });
+  elements.quoteNewButton.addEventListener('click', () => openQuoteEditor());
+  elements.quoteBulkButton.addEventListener('click', () => {
+    updateQuoteBulkPreview();
+    elements.quoteBulkDialog.showModal();
+  });
+  elements.quoteBulkText.addEventListener('input', updateQuoteBulkPreview);
+  elements.quoteBulkForm.addEventListener('submit', handleQuoteBulkSubmit);
+  elements.quoteEditForm.addEventListener('submit', handleQuoteEditSubmit);
+  elements.quoteDeleteButton.addEventListener('click', deleteEditedQuote);
+  elements.quoteImportInput.addEventListener('change', () => importQuoteFile(elements.quoteImportInput.files?.[0]));
+  elements.quoteStarterButton.addEventListener('click', async () => {
+    try {
+      const added = await addQuotes(STARTER_QUOTES, QUOTE_STARTER_COLLECTION);
+      showToast(added ? `أُضيفت ${formatNumber(added)} عبارات.` : 'عبارات مرساة موجودة من قبل.');
+    } catch (error) {
+      reportStorageFailure(error, 'إضافة عبارات مرساة');
+    }
+  });
   systemDarkTheme.addEventListener?.('change', () => {
     if (!validTheme(settingsMap.get('theme'))) applyTheme(null);
   });
@@ -5908,7 +7012,8 @@ function bindEvents() {
     openReturnPicker({
       mode: 'edit',
       entryId: elements.editEntryId.value,
-      selectedDate: elements.editReturnDate.value
+      selectedDate: elements.editReturnDate.value,
+      selectedAt: followUpMomentFor(elements.editReturnDate.value, elements.editReturnTime.value)
     });
   });
   elements.editTopTodayButton.addEventListener('click', () => {
@@ -5916,7 +7021,7 @@ function bindEvents() {
   });
   elements.returnPickerCustomForm.addEventListener('submit', event => {
     event.preventDefault();
-    applyReturnPickerDate(elements.returnPickerCustomDate.value);
+    applyReturnPickerDate(elements.returnPickerCustomDate.value, elements.returnPickerCustomTime.value);
   });
   elements.returnPickerDialog.addEventListener('close', () => {
     activeReturnPicker = null;
@@ -5927,7 +7032,7 @@ function bindEvents() {
       hideCaptureReturnConfirmation();
       return;
     }
-    openReturnPicker({ mode: 'entry', entryId: entry.id, selectedDate: entry.followUpDate });
+    openReturnPicker({ mode: 'entry', entryId: entry.id, selectedDate: entry.followUpDate, selectedAt: entry.followUpAt });
   });
   elements.editAttachmentInput.addEventListener('change', async () => {
     await handleAttachmentFiles(elements.editAttachmentInput.files, editNewAttachments);
@@ -5946,6 +7051,19 @@ function bindEvents() {
   });
   elements.entryDetailsDialog.addEventListener('close', () => {
     activeDetailsEntryId = null;
+    checklistReorderEntryId = null;
+    elements.entryChecklistInput.value = '';
+  });
+  elements.entryChecklistForm.addEventListener('submit', addChecklistItem);
+  elements.entryChecklistReorder.addEventListener('click', () => {
+    checklistReorderEntryId = checklistReorderEntryId === activeDetailsEntryId ? null : activeDetailsEntryId;
+    if (activeDetailsEntryId) renderEntryDetails(activeDetailsEntryId);
+  });
+  elements.entryDetailsQuote.addEventListener('click', async () => {
+    const entry = entries.find(item => item.id === activeDetailsEntryId);
+    if (!entry) return;
+    const added = await addQuotes([{ text: entry.text, source: '' }], QUOTE_CAPTURES_COLLECTION);
+    showToast(added ? 'أُضيفت إلى العبارات.' : 'العبارة موجودة من قبل.');
   });
   elements.entryShareSystemButton.addEventListener('click', shareActiveEntryText);
   elements.entryShareThingsButton.addEventListener('click', sendActiveEntryToThings);
@@ -6098,6 +7216,7 @@ async function init() {
   await openDatabase();
   await refreshData();
   await migrateLegacyReturnDates();
+  await archivePastDirections().catch(error => console.warn(error));
   await cleanOldTrash();
   await attemptAutomaticPersistence();
   updateIcloudStatus();
