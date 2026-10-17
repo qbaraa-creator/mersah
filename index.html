@@ -1167,6 +1167,121 @@
       align-items: end;
     }
     .entries-filter-grid .filter-clear { grid-column: 1 / -1; }
+    .entries-filter-grid [hidden] { display: none; }
+    .entries-attachments-toggle {
+      grid-column: 1 / -1;
+      min-height: var(--tap);
+      display: flex; align-items: center; gap: 10px;
+      font-size: 15px;
+      cursor: pointer;
+    }
+    .entries-head-actions { display: flex; align-items: center; gap: 6px; }
+    .entries-saved-views {
+      display: flex;
+      gap: 6px;
+      overflow-x: auto;
+      padding-block: 2px;
+      scrollbar-width: none;
+    }
+    .entries-saved-views::-webkit-scrollbar { display: none; }
+    .entries-view-chip {
+      all: unset;
+      box-sizing: border-box;
+      flex: none;
+      min-height: 36px;
+      display: inline-flex; align-items: center;
+      padding: 6px 12px;
+      cursor: pointer;
+      border-radius: 999px;
+      background: var(--color-surface);
+      border: 1px solid var(--color-hairline);
+      color: var(--color-text);
+      font-size: 14px;
+      white-space: nowrap;
+    }
+    .entries-view-chip.active {
+      background: var(--color-accent-ink);
+      border-color: var(--color-accent-ink);
+      color: var(--color-on-accent);
+    }
+    .entries-view-chip:focus-visible, .entry-select-row:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+    .entries-group-head {
+      margin: 10px 0 0;
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--color-muted);
+    }
+    .entry-select-row {
+      all: unset;
+      box-sizing: border-box;
+      width: 100%;
+      min-height: 56px;
+      display: flex; align-items: center; gap: 12px;
+      padding: 10px 14px;
+      cursor: pointer;
+      background: var(--color-card);
+      border-inline-start: 4px solid var(--path-color, var(--track-untriaged));
+    }
+    .entry-select-row.selected { background: var(--color-accent-soft); }
+    .entry-select-mark {
+      flex: none;
+      width: 24px; height: 24px;
+      display: grid; place-items: center;
+      border: 2px solid var(--color-accent-ink);
+      border-radius: 50%;
+      color: var(--color-on-accent);
+    }
+    .entry-select-row.selected .entry-select-mark { background: var(--color-accent-ink); }
+    .entry-select-mark svg { width: 16px; height: 16px; }
+    .entry-select-text {
+      min-width: 0;
+      font-size: 16px;
+      line-height: 1.6;
+      overflow: hidden;
+      display: -webkit-box;
+      -webkit-line-clamp: 2;
+      -webkit-box-orient: vertical;
+      overflow-wrap: anywhere;
+    }
+    .entries-batch-bar {
+      position: fixed; z-index: 36;
+      left: 12px; right: 12px;
+      bottom: calc(70px + var(--safe-bottom));
+      margin-inline: auto;
+      width: min(560px, calc(100% - 24px));
+      display: grid;
+      gap: 8px;
+      padding: 10px 12px;
+      border-radius: var(--radius-lg);
+      background: var(--color-bg);
+      border: 1px solid var(--color-divider);
+      box-shadow: var(--shadow-lg);
+    }
+    .entries-batch-bar[hidden] { display: none; }
+    .entries-batch-count { font-size: 14px; font-weight: 600; }
+    .entries-batch-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+    .entries-batch-actions > * { flex: 1 1 auto; }
+    .entries-batch-actions .select-field { width: auto; min-width: 110px; }
+    .entries-batch-actions button:disabled, .entries-batch-actions select:disabled { opacity: .45; }
+    body.entries-selecting .capture-fab { opacity: 0; visibility: hidden; pointer-events: none; }
+    body.entries-selecting #entriesView .panel { padding-bottom: 180px; }
+    .saved-views-list { display: grid; }
+    .saved-view-row {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto auto auto;
+      align-items: center;
+      gap: 4px;
+      padding-block: 6px;
+      border-bottom: 1px solid var(--color-hairline);
+    }
+    .saved-view-row:last-child { border-bottom: 0; }
+    .saved-view-row .action-link { min-width: var(--tap); min-height: var(--tap); }
+    .saved-view-row .action-link:disabled { opacity: .35; }
+    .saved-view-delete { color: var(--color-danger); font-size: 15px; }
 
     /* ── الأيام ── */
 
@@ -1510,7 +1625,7 @@
     dialog::backdrop { background: color-mix(in srgb, #2d2b2b 50%, transparent); }
     dialog.capture-sheet, dialog.edit-sheet, dialog.confirm-sheet, dialog.top-task-dialog,
     dialog.evening-close-sheet, dialog.weekly-session-sheet, dialog.return-picker-sheet,
-    dialog.entry-details-sheet, dialog.entry-share-sheet, dialog.trash-sheet,
+    dialog.entry-details-sheet, dialog.entry-share-sheet, dialog.trash-sheet, dialog.saved-views-sheet,
     dialog.quote-actions-sheet, dialog.quotes-sheet, dialog.today-layout-sheet {
       width: 100%; max-width: 100%;
       margin: 0 0 0 auto;
@@ -1522,7 +1637,7 @@
     dialog.evening-close-sheet .dialog-inner, dialog.weekly-session-sheet .dialog-inner,
     dialog.return-picker-sheet .dialog-inner,
     dialog.top-task-dialog .dialog-inner, dialog.entry-details-sheet .dialog-inner,
-    dialog.entry-share-sheet .dialog-inner, dialog.trash-sheet .dialog-inner,
+    dialog.entry-share-sheet .dialog-inner, dialog.trash-sheet .dialog-inner, dialog.saved-views-sheet .dialog-inner,
     dialog.quote-actions-sheet .dialog-inner, dialog.quotes-sheet .dialog-inner,
     dialog.today-layout-sheet .dialog-inner {
       padding: 18px 18px calc(18px + var(--safe-bottom));
@@ -2203,6 +2318,19 @@
       border-block-end: 1px solid var(--color-hairline);
     }
     .layout-row input { width: 20px; height: 20px; accent-color: var(--color-accent); }
+
+    #todayView.today-comfortable .top-item { padding-block: 10px; }
+    #todayView.today-comfortable .return-card,
+    #todayView.today-comfortable .entry-card { padding-block: 16px; gap: 12px; }
+    #todayView.today-comfortable .return-list,
+    #todayView.today-comfortable .top-list,
+    #todayView.today-comfortable .card-list { gap: 12px; }
+    #todayView.today-hide-path .return-card,
+    #todayView.today-hide-path .entry-card { border-inline-start-color: var(--color-hairline); }
+    #todayView.today-hide-path .return-card-head > .chip { display: none; }
+    #todayView.today-hide-return .return-when { display: none; }
+    .returned-defer-all { justify-self: start; }
+    .returned-defer-all[hidden] { display: none; }
   </style>
 </head>
 <body>
@@ -2272,6 +2400,7 @@
           </div>
           <div class="return-list" id="returnedTodayList"></div>
           <button class="quiet-btn returned-more-btn" id="showMoreReturnsButton" type="button" hidden>عرض الباقي</button>
+          <button class="quiet-btn small-btn returned-defer-all" id="deferAllReturnsButton" type="button" hidden>أجّل الكل إلى الجلسة</button>
         </section>
 
         <details class="panel today-log" id="todayLogSection" data-module="log">
@@ -2304,22 +2433,48 @@
             <div>
               <h2>الالتقاطات</h2>
             </div>
-            <span class="count" id="entriesCount">0</span>
+            <div class="entries-head-actions">
+              <span class="count" id="entriesCount">0</span>
+              <button class="quiet-btn small-btn" id="entriesSavedViewsButton" type="button" aria-label="العروض المحفوظة">العروض</button>
+              <button class="quiet-btn small-btn" id="entriesSelectButton" type="button" aria-pressed="false">تحديد</button>
+            </div>
           </div>
           <input class="field" id="entriesSearchInput" type="search" maxlength="200" placeholder="ابحث بالكلمة أو الحرف…" autocomplete="off" aria-label="البحث في الالتقاطات">
+          <div class="entries-saved-views" id="entriesSavedViews" role="group" aria-label="العروض المحفوظة"></div>
           <div class="entries-path-filters" id="entriesPathFilters" role="group" aria-label="تصفية الالتقاطات حسب المسار"></div>
           <button class="quiet-btn small-btn entries-open-only" id="entriesOpenOnlyButton" type="button" aria-label="إلغاء عرض المفتوح فقط" hidden>المفتوح فقط <span aria-hidden="true">×</span></button>
           <details class="entries-filter-options" id="entriesFilterOptions">
             <summary>
-              <span>التاريخ والترتيب</span>
+              <span>المرشحات والترتيب</span>
               <span class="entries-filter-summary" id="entriesFilterSummary">الأحدث</span>
             </summary>
             <div class="entries-filter-grid">
               <div class="form-group">
+                <label for="entriesStatus">الحالة</label>
+                <select class="select-field" id="entriesStatus">
+                  <option value="all">الكل</option>
+                  <option value="open">مفتوح</option>
+                  <option value="done">مكتمل</option>
+                  <option value="closed">مغلق</option>
+                </select>
+              </div>
+              <div class="form-group">
+                <label for="entriesDateScope">الفترة</label>
+                <select class="select-field" id="entriesDateScope">
+                  <option value="all">كل التواريخ</option>
+                  <option value="today">اليوم</option>
+                  <option value="week">آخر 7 أيام</option>
+                  <option value="month">آخر 30 يومًا</option>
+                  <option value="olderWeek">أقدم من أسبوع</option>
+                  <option value="stale">بلا حراك منذ أسبوع</option>
+                  <option value="custom">نطاق مخصص</option>
+                </select>
+              </div>
+              <div class="form-group entries-custom-date" hidden>
                 <label for="entriesDateFrom">من</label>
                 <input class="field" id="entriesDateFrom" type="date" lang="en-GB" dir="ltr">
               </div>
-              <div class="form-group">
+              <div class="form-group entries-custom-date" hidden>
                 <label for="entriesDateTo">إلى</label>
                 <input class="field" id="entriesDateTo" type="date" lang="en-GB" dir="ltr">
               </div>
@@ -2328,14 +2483,43 @@
                 <select class="select-field" id="entriesSort">
                   <option value="newest">الأحدث</option>
                   <option value="oldest">الأقدم</option>
+                  <option value="return">موعد العودة</option>
                 </select>
               </div>
+              <div class="form-group">
+                <label for="entriesGroup">التجميع</label>
+                <select class="select-field" id="entriesGroup">
+                  <option value="none">بلا تجميع</option>
+                  <option value="day">اليوم</option>
+                  <option value="path">المسار</option>
+                  <option value="return">موعد العودة</option>
+                </select>
+              </div>
+              <label class="entries-attachments-toggle">
+                <input class="checkbox" id="entriesAttachmentsOnly" type="checkbox">
+                <span>بالمرفقات فقط</span>
+              </label>
               <button class="quiet-btn filter-clear" id="clearEntriesFiltersButton" type="button">مسح الكل</button>
             </div>
           </details>
           <div class="tiny-note" id="entriesResultsNote" role="status" aria-live="polite"></div>
           <div class="card-list" id="entriesList"></div>
           <button class="quiet-btn" id="loadMoreEntriesButton" type="button" hidden>عرض نتائج أقدم</button>
+          <div class="entries-batch-bar" id="entriesBatchBar" role="toolbar" aria-label="إجراءات على المحدد" hidden>
+            <span class="entries-batch-count" id="entriesBatchCount" role="status" aria-live="polite">اختر التقاطات</span>
+            <div class="entries-batch-actions">
+              <select class="select-field" id="entriesBatchPath" aria-label="نقل المحدد إلى مسار">
+                <option value="">نقل إلى…</option>
+                <option value="consider">للنظر</option>
+                <option value="do">نفّذ</option>
+                <option value="waiting">بانتظار</option>
+              </select>
+              <button class="secondary-btn small-btn" type="button" data-batch-action="defer">أجّل</button>
+              <button class="secondary-btn small-btn" type="button" data-batch-action="close">إغلاق</button>
+              <button class="secondary-btn small-btn" type="button" data-batch-action="top">أهم اليوم</button>
+              <button class="danger-btn small-btn" type="button" data-batch-action="trash">حذف</button>
+            </div>
+          </div>
         </section>
       </section>
 
@@ -2599,6 +2783,7 @@
         </section>
         <div class="dialog-actions edit-sheet-actions">
           <button type="button" class="danger-btn edit-delete-action" id="editDeleteButton" aria-label="حذف الالتقاطة" title="حذف الالتقاطة"><svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M4 7h16M9 7V4h6v3M6 7l1 14h10l1-14M10 11v6M14 11v6"></path></svg></button>
+          <button type="button" class="quiet-btn" data-close-dialog="editDialog">إلغاء</button>
           <button type="submit" class="primary-btn">حفظ التعديل</button>
         </div>
       </form>
@@ -2721,6 +2906,22 @@
         <button class="primary-btn" id="entryShareThingsButton" type="button">إضافة إلى Things</button>
         <button class="quiet-btn" id="entryCopyTextButton" type="button">نسخ النص</button>
       </div>
+    </div>
+  </dialog>
+
+  <dialog class="saved-views-sheet" id="savedViewsDialog">
+    <div class="dialog-inner stack">
+      <div class="dialog-head">
+        <h2>العروض المحفوظة</h2>
+        <button class="dialog-close" data-close-dialog="savedViewsDialog" aria-label="إغلاق">×</button>
+      </div>
+      <form class="inline-form" id="savedViewForm">
+        <input class="field" id="savedViewName" type="text" maxlength="120" placeholder="اسم العرض" autocomplete="off" aria-label="اسم العرض الجديد">
+        <button class="primary-btn" type="submit">حفظ العرض الحالي</button>
+      </form>
+      <p class="tiny-note">يحفظ المسار والحالة والفترة والمرفقات والترتيب والتجميع، لا نص البحث.</p>
+      <div class="saved-views-list" id="savedViewsList"></div>
+      <p class="tiny-note" id="savedViewsEmpty" hidden>لا عروض محفوظة.</p>
     </div>
   </dialog>
 
@@ -2874,6 +3075,15 @@
       <p class="tiny-note">«أهم اليوم» و«إغلاق اليوم» قلب الحلقة اليومية؛ يُرتَّبان ولا يُخفيان.</p>
       <ol class="layout-list" id="todayLayoutList"></ol>
       <label class="switch-row"><input id="todayLayoutEvening" type="checkbox" checked> إغلاق اليوم في الأعلى مساءً</label>
+      <div class="form-group">
+        <label for="todayLayoutDensity">كثافة الصفوف</label>
+        <select class="select-field" id="todayLayoutDensity">
+          <option value="compact">مدمجة</option>
+          <option value="comfortable">مريحة</option>
+        </select>
+      </div>
+      <label class="switch-row"><input id="todayLayoutShowPath" type="checkbox" checked> المسار ولونه</label>
+      <label class="switch-row"><input id="todayLayoutShowReturn" type="checkbox" checked> موعد العودة</label>
       <div class="form-group">
         <label for="todayLayoutReturns">الظاهر من «عاد اليوم» قبل «عرض الباقي»</label>
         <select class="select-field" id="todayLayoutReturns">

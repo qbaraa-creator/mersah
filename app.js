@@ -96,6 +96,26 @@ const RETURN_SCHEDULES = Object.freeze([
 ]);
 const DEFAULT_RETURN_SCHEDULE_KEY = 'tomorrow';
 
+// العروض المحفوظة بأسماء MersahSavedView وقيمه في التطبيق الأصلي.
+const SAVED_VIEWS_SETTING = 'savedViewsV1';
+const MAX_SAVED_VIEWS = 100;
+const MAX_SAVED_VIEW_NAME = 120;
+const SWIFT_REFERENCE_EPOCH_MS = Date.UTC(2001, 0, 1);
+const SAVED_VIEW_PATHS = Object.freeze(['all', 'consider', 'do', 'waiting']);
+const SAVED_VIEW_STATUSES = Object.freeze(['all', 'open', 'done', 'closed']);
+const SAVED_VIEW_DATE_SCOPES = Object.freeze(['all', 'today', 'week', 'month', 'olderWeek', 'stale', 'custom']);
+const SAVED_VIEW_SORTS = Object.freeze(['newest', 'oldest', 'return']);
+const SAVED_VIEW_GROUPS = Object.freeze(['none', 'day', 'path', 'return']);
+const SAVED_VIEW_STATUS_LABELS = Object.freeze({ open: 'المفتوح', done: 'المكتمل', closed: 'المغلق' });
+const SAVED_VIEW_DATE_SCOPE_LABELS = Object.freeze({
+  today: 'اليوم',
+  week: 'آخر 7 أيام',
+  month: 'آخر 30 يومًا',
+  olderWeek: 'أقدم من أسبوع',
+  stale: 'بلا حراك منذ أسبوع'
+});
+const SAVED_VIEW_GROUP_LABELS = Object.freeze({ day: 'اليوم', path: 'المسار', return: 'موعد العودة' });
+
 function defaultReturnSchedule() {
   return RETURN_SCHEDULES.find(schedule => schedule.key === DEFAULT_RETURN_SCHEDULE_KEY);
 }
@@ -168,7 +188,10 @@ let topEntriesByDate = new Map();
 let attachmentsByEntry = new Map();
 let searchTextByEntryId = new Map();
 let currentView = 'today';
-let activeEntriesPath = 'all';
+let entriesFilter = defaultEntriesFilter();
+let activeSavedViewId = null;
+let entriesSelecting = false;
+const selectedEntryIds = new Set();
 let selectedDay = dateKey();
 let selectedDayEditUnlocked = false;
 let activeArchiveMonth = dateKey().slice(0, 7);
@@ -196,7 +219,6 @@ let selectedDirectionSavePending = false;
 let eveningDirectionDirty = false;
 let eveningReflectionDirty = false;
 let returnedTodayExpandedDay = null;
-let entriesOpenOnly = false;
 let backgroundWorkCount = 0;
 let updateReloadPending = false;
 let updateReloadStarted = false;
@@ -261,6 +283,9 @@ const elements = {
   todayLayoutEvening: $('#todayLayoutEvening'),
   todayLayoutReturns: $('#todayLayoutReturns'),
   todayLayoutReset: $('#todayLayoutReset'),
+  todayLayoutDensity: $('#todayLayoutDensity'),
+  todayLayoutShowPath: $('#todayLayoutShowPath'),
+  todayLayoutShowReturn: $('#todayLayoutShowReturn'),
   openTodayLayoutButton: $('#openTodayLayoutButton'),
   topLimitSetting: $('#topLimitSetting'),
   rewriteThresholdSetting: $('#rewriteThresholdSetting'),
@@ -292,6 +317,7 @@ const elements = {
   returnedTodayCount: $('#returnedTodayCount'),
   returnedTodayList: $('#returnedTodayList'),
   showMoreReturnsButton: $('#showMoreReturnsButton'),
+  deferAllReturnsButton: $('#deferAllReturnsButton'),
   weeklySessionSection: $('#weeklySessionSection'),
   openWeeklySessionButton: $('#openWeeklySessionButton'),
   weeklySessionButtonStatus: $('#weeklySessionButtonStatus'),
@@ -342,6 +368,21 @@ const elements = {
   entriesSearchInput: $('#entriesSearchInput'),
   entriesPathFilters: $('#entriesPathFilters'),
   entriesOpenOnlyButton: $('#entriesOpenOnlyButton'),
+  entriesSavedViews: $('#entriesSavedViews'),
+  entriesSavedViewsButton: $('#entriesSavedViewsButton'),
+  entriesSelectButton: $('#entriesSelectButton'),
+  entriesStatus: $('#entriesStatus'),
+  entriesDateScope: $('#entriesDateScope'),
+  entriesAttachmentsOnly: $('#entriesAttachmentsOnly'),
+  entriesGroup: $('#entriesGroup'),
+  entriesBatchBar: $('#entriesBatchBar'),
+  entriesBatchCount: $('#entriesBatchCount'),
+  entriesBatchPath: $('#entriesBatchPath'),
+  savedViewsDialog: $('#savedViewsDialog'),
+  savedViewForm: $('#savedViewForm'),
+  savedViewName: $('#savedViewName'),
+  savedViewsList: $('#savedViewsList'),
+  savedViewsEmpty: $('#savedViewsEmpty'),
   entriesFilterOptions: $('#entriesFilterOptions'),
   entriesFilterSummary: $('#entriesFilterSummary'),
   entriesDateFrom: $('#entriesDateFrom'),
@@ -679,11 +720,32 @@ async function getSetting(key, fallback = null) {
   });
 }
 
+// رقم تسلسلي لكل مفتاح: اكتمال كتابة قديمة بعد طلب أحدث لا يعيد قيمتها إلى الذاكرة.
+// معاملات IndexedDB المتداخلة على المخزن نفسه تكتمل بترتيب إنشائها، فالقاعدة تنتهي بأحدث قيمة.
+// `settings` يحمل آخر قيمة مؤكدة الحفظ، و`settingsMap` أحدث قيمة مطلوبة للواجهة.
+const settingWriteSequence = new Map();
+const settingConfirmedSequence = new Map();
+
 async function putSetting(key, value) {
+  const sequence = (settingWriteSequence.get(key) || 0) + 1;
+  settingWriteSequence.set(key, sequence);
   const record = { key, value, updatedAt: nowIso() };
-  await putRecord('settings', record);
-  settings = [record, ...settings.filter(item => item.key !== key)];
-  settingsMap.set(key, value);
+  try {
+    await putRecord('settings', record);
+  } catch (error) {
+    // فشل أحدث طلب يعيد الواجهة إلى آخر قيمة مؤكدة؛ فشل طلب أقدم لا يمس طلبًا أحدث.
+    if (settingWriteSequence.get(key) === sequence) {
+      const confirmed = settings.find(item => item.key === key);
+      if (confirmed) settingsMap.set(key, confirmed.value);
+      else settingsMap.delete(key);
+    }
+    throw error;
+  }
+  if (sequence > (settingConfirmedSequence.get(key) || 0)) {
+    settingConfirmedSequence.set(key, sequence);
+    settings = [record, ...settings.filter(item => item.key !== key)];
+  }
+  if (settingWriteSequence.get(key) === sequence) settingsMap.set(key, value);
 }
 
 function validTheme(value) {
@@ -1611,6 +1673,40 @@ function returnedEntriesFor(today = dateKey()) {
       || new Date(a.createdAt) - new Date(b.createdAt));
 }
 
+// «أجّل الكل إلى الجلسة»: كل ما عاد اليوم يُؤجَّل إلى أقرب جلسة بحدث تأجيل صريح لكل عنصر،
+// في معاملة واحدة، دون تغيير المسارات أو «أهم اليوم».
+async function deferAllReturnsToSession() {
+  const today = dateKey();
+  const list = returnedEntriesFor(today);
+  if (!list.length) return;
+  const session = nextWeeklySessionDate(today);
+  const approved = await askConfirm({
+    title: 'تأجيل كل ما عاد اليوم إلى الجلسة؟',
+    message: `يُؤجَّل ${formatNumber(list.length)} إلى ${dayName(session)} ${formatHeaderDayMonth(session)}. تبقى المسارات كما هي، ويُسجَّل لكل عنصر تأجيل. «أهم اليوم» لا يتأثر.`,
+    accept: `أجّل ${formatNumber(list.length)}`,
+    danger: false
+  });
+  if (!approved) return;
+  const updates = list.map(current => {
+    const updated = buildUpdatedEntry(current, { followUpDate: session });
+    return appendEventsToEntry(updated, [createEntryEvent('return_deferred', updated.updatedAt, {
+      from: current.followUpDate,
+      to: session
+    })], updated);
+  });
+  try {
+    await runAtomicWrite(['entries'], (stores, track) => {
+      updates.forEach(entry => track(stores.entries.put(entry)));
+    });
+    const byId = new Map(updates.map(entry => [entry.id, entry]));
+    entries = entries.map(entry => byId.get(entry.id) || entry);
+    refreshDataViews();
+    showToast(`أُجّل ${formatNumber(updates.length)} إلى جلسة ${formatHeaderDayMonth(session)}.`);
+  } catch (error) {
+    reportStorageFailure(error, 'تأجيل العوائد إلى الجلسة');
+  }
+}
+
 function returnActionButton(label, handler, { className = '', iconName = '', disabled = false } = {}) {
   const button = document.createElement('button');
   button.type = 'button';
@@ -1693,14 +1789,18 @@ function createReturnCard(entry) {
     overdue.className = 'return-overdue';
     overdue.textContent = `متأخر ${ageDaysLabel(overdueDays)}`;
     meta.append(overdue);
-  } else if (entry.followUpDate === today) {
-    const returnTime = followUpTimeLabel(entry);
-    meta.append(document.createTextNode(returnTime ? `موعده اليوم · ${returnTime}` : 'موعده اليوم'));
-  } else if (validDateKey(entry.followUpDate)) {
-    const returnTime = followUpTimeLabel(entry);
-    meta.append(document.createTextNode(`يعود ${relativeDayLabel(entry.followUpDate)}${returnTime ? ` · ${returnTime}` : ''}`));
   } else {
-    meta.append(document.createTextNode('بلا تاريخ عودة'));
+    const when = document.createElement('span');
+    when.className = 'return-when';
+    const returnTime = followUpTimeLabel(entry);
+    if (entry.followUpDate === today) {
+      when.textContent = returnTime ? `موعده اليوم · ${returnTime}` : 'موعده اليوم';
+    } else if (validDateKey(entry.followUpDate)) {
+      when.textContent = `يعود ${relativeDayLabel(entry.followUpDate)}${returnTime ? ` · ${returnTime}` : ''}`;
+    } else {
+      when.textContent = 'بلا تاريخ عودة';
+    }
+    meta.append(when);
   }
   const deferredCount = consecutiveDeferralCount(entry);
   let deferralInvite = null;
@@ -1735,6 +1835,7 @@ function renderReturnedToday(today = dateKey()) {
   const list = returnedEntriesFor(today);
   const overdue = list.filter(entry => entry.followUpDate < today).length;
   elements.returnedTodaySection.hidden = list.length === 0;
+  elements.deferAllReturnsButton.hidden = list.length === 0;
   elements.returnedTodayCount.textContent = overdue
     ? `${formatNumber(list.length)} · متأخر ${formatNumber(overdue)}`
     : formatNumber(list.length);
@@ -1913,6 +2014,13 @@ function openEveningCloseDialog() {
   eveningReflectionDirty = false;
   elements.eveningOpenDetails.open = false;
   renderEveningCloseDialog();
+  const draft = readDraft(`close.${dateKey()}`);
+  if (draft) {
+    elements.eveningReflection.value = draft.reflection || '';
+    elements.eveningTomorrowDirection.value = draft.tomorrow || '';
+    eveningDirectionDirty = true;
+    eveningReflectionDirty = true;
+  }
   elements.eveningCloseDialog.showModal();
 }
 
@@ -2032,18 +2140,16 @@ function entrySearchText(entry) {
 function renderEntries() {
   const query = clampString(elements.entriesSearchInput.value, 200);
   const terms = normalizeArabic(query).split(' ').filter(Boolean);
-  const from = validDateKey(elements.entriesDateFrom.value) || '';
-  const to = validDateKey(elements.entriesDateTo.value) || '';
-  const sort = ['newest', 'oldest'].includes(elements.entriesSort.value)
-    ? elements.entriesSort.value
-    : 'newest';
+  const filter = entriesFilter;
+  const now = Date.now();
+  if (activeSavedViewId && !savedViewMatchesFilter(savedViews().find(view => view.id === activeSavedViewId), filter)) {
+    activeSavedViewId = null;
+  }
+  syncEntriesFilterControls();
+  renderSavedViewChips();
 
   const matchingBeforePath = entries.filter(entry => {
-    if (entry.status === 'trash') return false;
-    if (entriesOpenOnly && entry.status !== 'open') return false;
-    const createdDay = entryDate(entry);
-    if (from && createdDay < from) return false;
-    if (to && createdDay > to) return false;
+    if (!entryMatchesFilter(entry, filter, now)) return false;
     if (!terms.length) return true;
     const haystack = searchTextByEntryId.get(entry.id) || entrySearchText(entry);
     return terms.every(term => haystack.includes(term));
@@ -2055,24 +2161,88 @@ function renderEntries() {
   });
   renderEntriesPathFilters(matchingBeforePath.length, pathCounts);
 
-  const filtered = activeEntriesPath === 'all'
+  const filtered = filter.path === 'all'
     ? matchingBeforePath
-    : matchingBeforePath.filter(entry => entry.path === activeEntriesPath);
-  const results = sortEntriesResults(filtered, sort);
+    : matchingBeforePath.filter(entry => entry.path === filter.path);
+  const results = sortEntriesResults(filtered, filter.sort);
   const shown = results.slice(0, entriesResultsLimit);
-  const hasFilters = Boolean(query || from || to || entriesOpenOnly || activeEntriesPath !== 'all' || sort !== 'newest');
-  elements.entriesOpenOnlyButton.hidden = !entriesOpenOnly;
+  const hasFilters = Boolean(query) || !savedViewMatchesFilter(defaultEntriesFilter(), filter);
+  elements.entriesOpenOnlyButton.hidden = filter.status !== 'open';
 
   elements.entriesCount.textContent = String(results.length);
-  elements.entriesResultsNote.textContent = entriesResultsNote(query, results.length, shown.length, sort);
+  elements.entriesResultsNote.textContent = entriesResultsNote(query, results.length, shown.length, filter.sort);
   elements.loadMoreEntriesButton.hidden = shown.length >= results.length;
   elements.clearEntriesFiltersButton.disabled = !hasFilters;
-  updateEntriesFilterSummary(from, to, sort);
-  renderEntryList(
-    elements.entriesList,
-    shown,
-    hasFilters ? 'لا توجد نتائج مطابقة.' : 'لا توجد التقاطات بعد.'
-  );
+  updateEntriesFilterSummary(filter);
+  renderEntriesResults(results, shown, hasFilters ? 'لا توجد نتائج مطابقة.' : 'لا توجد التقاطات بعد.');
+  renderEntriesBatchBar();
+}
+
+function renderEntriesResults(results, shown, emptyMessage) {
+  const container = elements.entriesList;
+  const build = entry => entriesSelecting ? createSelectableEntryRow(entry) : createEntryCard(entry);
+  releaseObservedAttachmentImages(container);
+  if (!shown.length) {
+    container.replaceChildren(emptyNode(emptyMessage));
+    return;
+  }
+  if (entriesFilter.group === 'none') {
+    container.replaceChildren(...shown.map(build));
+    return;
+  }
+  // العدد في رأس المجموعة يحسب كل النتائج لا المعروض منها فقط، كما في التطبيق الأصلي.
+  const counts = new Map();
+  results.forEach(entry => {
+    const key = entriesGroupKey(entry);
+    counts.set(key, (counts.get(key) || 0) + 1);
+  });
+  const nodes = [];
+  let previous = null;
+  shown.forEach(entry => {
+    const key = entriesGroupKey(entry);
+    if (key !== previous) {
+      const head = document.createElement('h3');
+      head.className = 'entries-group-head';
+      head.textContent = `${key} · ${formatNumber(counts.get(key) || 0)}`;
+      nodes.push(head);
+      previous = key;
+    }
+    nodes.push(build(entry));
+  });
+  container.replaceChildren(...nodes);
+}
+
+function entriesGroupKey(entry) {
+  switch (entriesFilter.group) {
+    case 'day': return formatDateKey(entryDate(entry));
+    case 'path': return PATHS[entry.path] || 'بلا مسار';
+    case 'return': return entry.followUpDate ? formatDateKey(entry.followUpDate) : 'بلا موعد';
+    default: return '';
+  }
+}
+
+function createSelectableEntryRow(entry) {
+  const selected = selectedEntryIds.has(entry.id);
+  const button = document.createElement('button');
+  button.type = 'button';
+  button.className = `card entry-card entry-select-row path-${entry.path}${selected ? ' selected' : ''}`;
+  button.dataset.entryId = entry.id;
+  button.setAttribute('aria-pressed', String(selected));
+  const mark = document.createElement('span');
+  mark.className = 'entry-select-mark';
+  mark.setAttribute('aria-hidden', 'true');
+  if (selected) mark.append(uiIcon('check'));
+  const text = document.createElement('span');
+  text.className = 'entry-select-text';
+  text.dir = 'auto';
+  text.textContent = entry.text || attachmentOnlyLabel(entry);
+  button.append(mark, text);
+  button.addEventListener('click', () => {
+    if (selectedEntryIds.has(entry.id)) selectedEntryIds.delete(entry.id);
+    else selectedEntryIds.add(entry.id);
+    renderEntries();
+  });
+  return button;
 }
 
 function isLikelyDirectTopTask(entry) {
@@ -2210,8 +2380,7 @@ function renderPathBacklog() {
     meta.textContent = `${pathEntries.length}${oldText}`;
     button.append(name, track, meta);
     button.addEventListener('click', () => {
-      activeEntriesPath = path;
-      entriesOpenOnly = true;
+      entriesFilter = { ...defaultEntriesFilter(), path, status: 'open' };
       entriesResultsLimit = ENTRY_PAGE_SIZE;
       switchView('entries');
     });
@@ -2359,8 +2528,8 @@ function renderEntriesPathFilters(total, pathCounts) {
   elements.entriesPathFilters.replaceChildren(...options.map(([path, label, icon]) => {
     const button = document.createElement('button');
     button.type = 'button';
-    button.className = `entries-path-button${path === 'all' ? '' : ` path-${path}`}${activeEntriesPath === path ? ' active' : ''}`;
-    button.setAttribute('aria-pressed', String(activeEntriesPath === path));
+    button.className = `entries-path-button${path === 'all' ? '' : ` path-${path}`}${entriesFilter.path === path ? ' active' : ''}`;
+    button.setAttribute('aria-pressed', String(entriesFilter.path === path));
     const count = path === 'all' ? total : pathCounts[path] || 0;
     const name = document.createElement('span');
     name.className = 'entries-path-name';
@@ -2379,10 +2548,8 @@ function renderEntriesPathFilters(total, pathCounts) {
     button.setAttribute('aria-label', `${label}، ${entryCountLabel(count)}`);
     button.append(name, countNode);
     button.addEventListener('click', () => {
-      if (activeEntriesPath === path) return;
-      activeEntriesPath = path;
-      entriesResultsLimit = ENTRY_PAGE_SIZE;
-      renderEntries();
+      if (entriesFilter.path === path) return;
+      setEntriesFilter({ path });
     });
     return button;
   }));
@@ -2393,20 +2560,51 @@ function sortEntriesResults(list, sort) {
   if (sort === 'oldest') {
     return sorted.sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
   }
+  if (sort === 'return') {
+    // بلا موعد في الآخر، والعودة بساعة تسبق يومها المدني.
+    const returnTime = entry => {
+      if (validFollowUpAt(entry.followUpAt)) return new Date(entry.followUpAt).getTime();
+      const day = validDateKey(entry.followUpDate);
+      return day ? dateFromKey(day).getTime() : Infinity;
+    };
+    return sorted.sort((a, b) => returnTime(a) - returnTime(b) || new Date(b.createdAt) - new Date(a.createdAt));
+  }
   return sorted.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
 }
 
 function entriesSortLabel(sort) {
   if (sort === 'oldest') return 'الأقدم';
+  if (sort === 'return') return 'موعد العودة';
   return 'الأحدث';
 }
 
-function updateEntriesFilterSummary(from, to, sort) {
-  const parts = [entriesSortLabel(sort)];
-  if (from && to) parts.push(`${formatDateKey(from)}–${formatDateKey(to)}`);
-  else if (from) parts.push(`من ${formatDateKey(from)}`);
-  else if (to) parts.push(`حتى ${formatDateKey(to)}`);
+function updateEntriesFilterSummary(filter) {
+  const parts = [entriesSortLabel(filter.sort)];
+  if (filter.status !== 'all') parts.push(SAVED_VIEW_STATUS_LABELS[filter.status]);
+  if (filter.dateScope === 'custom') {
+    const from = filter.customStart;
+    const to = filter.customEnd;
+    if (from && to) parts.push(`${formatDateKey(from)}–${formatDateKey(to)}`);
+    else if (from) parts.push(`من ${formatDateKey(from)}`);
+    else if (to) parts.push(`حتى ${formatDateKey(to)}`);
+  } else if (filter.dateScope !== 'all') {
+    parts.push(SAVED_VIEW_DATE_SCOPE_LABELS[filter.dateScope]);
+  }
+  if (filter.attachmentsOnly) parts.push('بالمرفقات');
+  if (filter.group !== 'none') parts.push(`مجمّع: ${SAVED_VIEW_GROUP_LABELS[filter.group]}`);
   elements.entriesFilterSummary.textContent = parts.join(' · ');
+}
+
+function syncEntriesFilterControls() {
+  const filter = entriesFilter;
+  elements.entriesStatus.value = filter.status;
+  elements.entriesDateScope.value = filter.dateScope;
+  elements.entriesDateFrom.value = filter.customStart || '';
+  elements.entriesDateTo.value = filter.customEnd || '';
+  $$('.entries-custom-date').forEach(node => { node.hidden = filter.dateScope !== 'custom'; });
+  elements.entriesAttachmentsOnly.checked = filter.attachmentsOnly;
+  elements.entriesSort.value = filter.sort;
+  elements.entriesGroup.value = filter.group;
 }
 
 function entriesResultsNote(query, total, shown, sort) {
@@ -2426,28 +2624,472 @@ function scheduleEntriesSearch() {
   }, 100);
 }
 
-function handleEntriesDateChange(changed) {
-  const from = elements.entriesDateFrom.value;
-  const to = elements.entriesDateTo.value;
-  if (from && to && from > to) {
-    if (changed === 'from') elements.entriesDateTo.value = from;
-    else elements.entriesDateFrom.value = to;
-  }
+function setEntriesFilter(changes) {
+  entriesFilter = normalizedSavedViewFilter({ ...entriesFilter, ...changes });
   entriesResultsLimit = ENTRY_PAGE_SIZE;
   renderEntries();
+}
+
+function handleEntriesDateChange(changed) {
+  let from = validDateKey(elements.entriesDateFrom.value) || null;
+  let to = validDateKey(elements.entriesDateTo.value) || null;
+  if (from && to && from > to) {
+    if (changed === 'from') to = from;
+    else from = to;
+  }
+  setEntriesFilter({ dateScope: 'custom', customStart: from, customEnd: to });
+}
+
+function handleEntriesDateScopeChange() {
+  const dateScope = elements.entriesDateScope.value;
+  const changes = { dateScope };
+  // النطاق المخصص يبدأ باليوم في طرفيه، كما في التطبيق الأصلي.
+  if (dateScope === 'custom') {
+    changes.customStart = entriesFilter.customStart || dateKey();
+    changes.customEnd = entriesFilter.customEnd || dateKey();
+  }
+  setEntriesFilter(changes);
 }
 
 function clearEntriesFilters() {
   clearTimeout(entriesSearchTimer);
   elements.entriesSearchInput.value = '';
-  elements.entriesDateFrom.value = '';
-  elements.entriesDateTo.value = '';
-  elements.entriesSort.value = 'newest';
-  activeEntriesPath = 'all';
-  entriesOpenOnly = false;
+  entriesFilter = defaultEntriesFilter();
+  activeSavedViewId = null;
   entriesResultsLimit = ENTRY_PAGE_SIZE;
   renderEntries();
   elements.entriesSearchInput.focus();
+}
+
+// ── العروض المحفوظة ──
+// تُخزَّن تحت savedViewsV1 بشكل MersahSavedView في التطبيق الأصلي حرفيًا، فتعبر نسخة JSON بين الطرفين:
+// كل الحقول موجودة دائمًا (فكّ Swift يطلبها)، والتاريخان المخصصان ثوانٍ منذ 2001-01-01 كترميز Date الافتراضي.
+
+function defaultEntriesFilter() {
+  return {
+    path: 'all',
+    status: 'all',
+    dateScope: 'all',
+    customStart: null,
+    customEnd: null,
+    attachmentsOnly: false,
+    sort: 'newest',
+    group: 'none',
+    style: 'compact'
+  };
+}
+
+function defaultSavedViews() {
+  // معرّفات ثابتة: العروض الافتراضية لا تُكتب في القاعدة حتى يغيّرها المستخدم،
+  // فلا يسبق طابعها الزمني عروض نسخة احتياطية تُستورد لاحقًا.
+  return [
+    { ...defaultEntriesFilter(), id: 'default-consider-oldest', name: 'للنظر · الأقدم أولًا', path: 'consider', status: 'open', sort: 'oldest' },
+    { ...defaultEntriesFilter(), id: 'default-waiting-stale', name: 'بانتظار منذ أسبوع', path: 'waiting', status: 'open', dateScope: 'stale', sort: 'oldest' },
+    { ...defaultEntriesFilter(), id: 'default-attachments', name: 'بالمرفقات', attachmentsOnly: true }
+  ];
+}
+
+function oneOf(value, allowed, fallback) {
+  return allowed.includes(value) ? value : fallback;
+}
+
+function normalizedSavedViewFilter(value) {
+  const fallback = defaultEntriesFilter();
+  return {
+    path: oneOf(value?.path, SAVED_VIEW_PATHS, fallback.path),
+    status: oneOf(value?.status, SAVED_VIEW_STATUSES, fallback.status),
+    dateScope: oneOf(value?.dateScope, SAVED_VIEW_DATE_SCOPES, fallback.dateScope),
+    customStart: validDateKey(value?.customStart),
+    customEnd: validDateKey(value?.customEnd),
+    attachmentsOnly: value?.attachmentsOnly === true,
+    sort: oneOf(value?.sort, SAVED_VIEW_SORTS, fallback.sort),
+    group: oneOf(value?.group, SAVED_VIEW_GROUPS, fallback.group),
+    style: typeof value?.style === 'string' && value.style ? clampString(value.style, 40) : fallback.style
+  };
+}
+
+function nativeDateToKey(value) {
+  if (typeof value === 'number' && Number.isFinite(value)) return civilDateKey(new Date(SWIFT_REFERENCE_EPOCH_MS + value * 1000));
+  if (typeof value === 'string') return validDateKey(value) || (validIso(value) ? civilDateKey(new Date(value)) : null);
+  return null;
+}
+
+function keyToNativeDate(key) {
+  const date = dateFromKey(key);
+  date.setHours(12, 0, 0, 0);
+  return (date.getTime() - SWIFT_REFERENCE_EPOCH_MS) / 1000;
+}
+
+function savedViewFromStored(item) {
+  if (!item || typeof item !== 'object') return null;
+  if (item.name === 'قرارات هذا الشهر') return null;
+  const view = normalizedSavedViewFilter({
+    ...item,
+    customStart: nativeDateToKey(item.customStart),
+    customEnd: nativeDateToKey(item.customEnd)
+  });
+  // ترحيل التطبيق الأصلي: «بانتظار منذ أسبوع» كان يقيس الإنشاء ثم صار «بلا حراك».
+  if (item.name === 'بانتظار منذ أسبوع' && view.dateScope === 'olderWeek') view.dateScope = 'stale';
+  const id = typeof item.id === 'string' && item.id && item.id.length <= MAX_ID_LENGTH ? item.id : uid('view');
+  return {
+    ...view,
+    id,
+    name: clampString(typeof item.name === 'string' ? item.name : '', MAX_SAVED_VIEW_NAME),
+    // القيمة الأصلية تبقى كما هي ما دام يومها لم يتغيّر، فتعود النسخة إلى التطبيق الأصلي بلا فرق.
+    nativeDates: { customStart: item.customStart, customEnd: item.customEnd }
+  };
+}
+
+function savedViewToStored(view) {
+  const stored = {
+    id: view.id,
+    name: view.name,
+    path: view.path,
+    status: view.status,
+    dateScope: view.dateScope,
+    attachmentsOnly: view.attachmentsOnly,
+    sort: view.sort,
+    group: view.group,
+    style: view.style
+  };
+  ['customStart', 'customEnd'].forEach(key => {
+    if (!view[key]) return;
+    const original = view.nativeDates?.[key];
+    stored[key] = typeof original === 'number' && nativeDateToKey(original) === view[key]
+      ? original
+      : keyToNativeDate(view[key]);
+  });
+  return stored;
+}
+
+function savedViews() {
+  const stored = settingsMap.get(SAVED_VIEWS_SETTING);
+  if (!Array.isArray(stored)) return defaultSavedViews();
+  const seen = new Set();
+  return stored.slice(0, MAX_SAVED_VIEWS).map(savedViewFromStored).filter(view => {
+    if (!view || seen.has(view.id)) return false;
+    seen.add(view.id);
+    return true;
+  });
+}
+
+async function storeSavedViews(views) {
+  await putSetting(SAVED_VIEWS_SETTING, views.slice(0, MAX_SAVED_VIEWS).map(savedViewToStored));
+}
+
+function savedViewMatchesFilter(view, filter) {
+  if (!view) return false;
+  const keys = ['path', 'status', 'dateScope', 'attachmentsOnly', 'sort', 'group'];
+  if (keys.some(key => view[key] !== filter[key])) return false;
+  return view.dateScope !== 'custom'
+    || ((view.customStart || null) === (filter.customStart || null) && (view.customEnd || null) === (filter.customEnd || null));
+}
+
+function entryMatchesFilter(entry, filter, now = Date.now()) {
+  if (entry.status === 'trash') return false;
+  if (filter.status !== 'all' && entry.status !== filter.status) return false;
+  if (filter.attachmentsOnly && !attachmentsFor(entry.id).length) return false;
+  const createdDay = entryDate(entry);
+  const createdTime = new Date(entry.createdAt).getTime();
+  switch (filter.dateScope) {
+    case 'today': return createdDay === dateKey();
+    case 'stale':
+      // «بلا حراك»: آخر تغيير على الالتقاطة لا تاريخ إنشائها.
+      return new Date(entry.updatedAt || entry.createdAt).getTime() <= now - 7 * DAY;
+    case 'week': return createdTime >= now - 7 * DAY;
+    case 'month': return createdTime >= now - 30 * DAY;
+    case 'olderWeek': return createdTime <= now - 7 * DAY;
+    case 'custom':
+      if (filter.customStart && createdDay < filter.customStart) return false;
+      if (filter.customEnd && createdDay > filter.customEnd) return false;
+      return true;
+    default: return true;
+  }
+}
+
+function applySavedView(id) {
+  const view = id ? savedViews().find(item => item.id === id) : null;
+  entriesFilter = view ? normalizedSavedViewFilter(view) : defaultEntriesFilter();
+  activeSavedViewId = view ? view.id : null;
+  entriesResultsLimit = ENTRY_PAGE_SIZE;
+  renderEntries();
+}
+
+function renderSavedViewChips() {
+  const options = [[null, 'الكل'], ...savedViews().map(view => [view.id, view.name || 'عرض بلا اسم'])];
+  elements.entriesSavedViews.replaceChildren(...options.map(([id, name]) => {
+    const button = document.createElement('button');
+    button.type = 'button';
+    const active = id === activeSavedViewId;
+    button.className = `entries-view-chip${active ? ' active' : ''}`;
+    button.setAttribute('aria-pressed', String(active));
+    button.dataset.viewId = id || '';
+    button.textContent = name;
+    button.addEventListener('click', () => applySavedView(id));
+    return button;
+  }));
+}
+
+function openSavedViewsDialog() {
+  elements.savedViewName.value = '';
+  renderSavedViewsManager();
+  elements.savedViewsDialog.showModal();
+}
+
+function renderSavedViewsManager() {
+  const views = savedViews();
+  elements.savedViewsEmpty.hidden = views.length > 0;
+  elements.savedViewsList.replaceChildren(...views.map((view, index) => {
+    const row = document.createElement('div');
+    row.className = 'saved-view-row';
+    row.dataset.viewId = view.id;
+    const input = document.createElement('input');
+    input.className = 'field';
+    input.type = 'text';
+    input.maxLength = MAX_SAVED_VIEW_NAME;
+    input.value = view.name;
+    input.setAttribute('aria-label', 'اسم العرض');
+    input.addEventListener('change', () => updateSavedViews(list => list.map(item => item.id === view.id
+      ? { ...item, name: clampString(input.value, MAX_SAVED_VIEW_NAME) }
+      : item), 'إعادة تسمية العرض'));
+    const up = actionButton('↑', () => moveSavedView(view.id, -1), 'saved-view-move');
+    up.setAttribute('aria-label', `تقديم «${view.name}»`);
+    up.disabled = index === 0;
+    const down = actionButton('↓', () => moveSavedView(view.id, 1), 'saved-view-move');
+    down.setAttribute('aria-label', `تأخير «${view.name}»`);
+    down.disabled = index === views.length - 1;
+    const remove = actionButton('حذف', () => deleteSavedView(view.id), 'saved-view-delete');
+    remove.setAttribute('aria-label', `حذف العرض «${view.name}»`);
+    row.append(input, up, down, remove);
+    return row;
+  }));
+}
+
+async function updateSavedViews(change, action) {
+  try {
+    await storeSavedViews(change(savedViews()));
+  } catch (error) {
+    reportStorageFailure(error, action);
+    return false;
+  }
+  if (activeSavedViewId && !savedViews().some(view => view.id === activeSavedViewId)) {
+    activeSavedViewId = null;
+    entriesFilter = defaultEntriesFilter();
+  }
+  if (elements.savedViewsDialog.open) renderSavedViewsManager();
+  renderEntries();
+  return true;
+}
+
+async function saveCurrentView(event) {
+  event.preventDefault();
+  const views = savedViews();
+  if (views.length >= MAX_SAVED_VIEWS) {
+    showToast(`الحد الأقصى ${formatNumber(MAX_SAVED_VIEWS)} عرض.`);
+    return;
+  }
+  const name = clampString(elements.savedViewName.value, MAX_SAVED_VIEW_NAME) || `عرض ${formatNumber(views.length + 1)}`;
+  const view = { ...normalizedSavedViewFilter(entriesFilter), id: uid('view'), name };
+  if (!await updateSavedViews(list => [...list, view], 'حفظ العرض')) return;
+  activeSavedViewId = view.id;
+  elements.savedViewsDialog.close();
+  renderEntries();
+  showToast(`حُفظ العرض «${name}».`);
+}
+
+function moveSavedView(id, offset) {
+  return updateSavedViews(list => {
+    const index = list.findIndex(view => view.id === id);
+    const target = index + offset;
+    if (index < 0 || target < 0 || target >= list.length) return list;
+    const next = [...list];
+    [next[index], next[target]] = [next[target], next[index]];
+    return next;
+  }, 'ترتيب العروض');
+}
+
+async function deleteSavedView(id) {
+  const view = savedViews().find(item => item.id === id);
+  if (!view) return;
+  await updateSavedViews(list => list.filter(item => item.id !== id), 'حذف العرض');
+}
+
+// ── التحديد والإجراءات الجماعية ──
+
+function setEntriesSelecting(selecting) {
+  entriesSelecting = selecting;
+  selectedEntryIds.clear();
+  document.body.classList.toggle('entries-selecting', selecting);
+  elements.entriesSelectButton.textContent = selecting ? 'تم' : 'تحديد';
+  elements.entriesSelectButton.setAttribute('aria-pressed', String(selecting));
+  renderEntries();
+}
+
+function renderEntriesBatchBar() {
+  elements.entriesBatchBar.hidden = !entriesSelecting;
+  if (!entriesSelecting) return;
+  // ما خرج من القائمة (حذف أو إكمال من مكان آخر) يخرج من التحديد أيضًا.
+  [...selectedEntryIds].forEach(id => {
+    if (!entries.some(entry => entry.id === id && entry.status !== 'trash')) selectedEntryIds.delete(id);
+  });
+  const count = selectedEntryIds.size;
+  elements.entriesBatchCount.textContent = count ? `${formatNumber(count)} محدد` : 'اختر التقاطات';
+  $$('[data-batch-action], #entriesBatchPath', elements.entriesBatchBar).forEach(control => {
+    control.disabled = count === 0;
+  });
+}
+
+function selectedBatchEntries(eligible = () => true) {
+  return entries.filter(entry => selectedEntryIds.has(entry.id) && entry.status !== 'trash' && eligible(entry));
+}
+
+// كل تغيير يمر عبر buildUpdatedEntry فيُسجَّل في eventLog كما في التعديل الفردي،
+// ثم يُكتب الكل في معاملة واحدة مع مزامنة «أهم اليوم» للأيام المتأثرة.
+async function updateEntriesBatch(list, patchFor) {
+  const changes = [];
+  list.forEach(current => {
+    const change = patchFor(current);
+    if (!change) return;
+    let updated = buildUpdatedEntry(current, change.patch);
+    if (change.extraEvent?.type && ENTRY_EVENT_TYPES.has(change.extraEvent.type)) {
+      updated = appendEventsToEntry(updated, [createEntryEvent(
+        change.extraEvent.type,
+        updated.updatedAt,
+        change.extraEvent.details || {}
+      )], updated);
+    }
+    changes.push({ current, updated });
+  });
+  if (!changes.length) return [];
+  const updatedById = new Map(changes.map(({ updated }) => [updated.id, updated]));
+  const nextEntries = entries.map(entry => updatedById.get(entry.id) || entry);
+  const days = new Set(changes.flatMap(({ current, updated }) => [current.topTodayDate, updated.topTodayDate]).filter(Boolean));
+  const timestamp = nowIso();
+  const dailyUpdates = [...days].map(day => dailyTopRecordForEntries(day, nextEntries, timestamp));
+  await runAtomicWrite(['entries', ...(dailyUpdates.length ? ['daily'] : [])], (stores, track) => {
+    changes.forEach(({ updated }) => track(stores.entries.put(updated)));
+    dailyUpdates.forEach(record => track(stores.daily.put(record)));
+  });
+  entries = nextEntries;
+  upsertDailyRecords(dailyUpdates);
+  refreshDataViews();
+  return changes;
+}
+
+async function runEntriesBatch(label, list, patchFor, message) {
+  if (!list.length) {
+    showToast('لا توجد التقاطات مناسبة لهذا الإجراء.');
+    return null;
+  }
+  let changes;
+  try {
+    changes = await updateEntriesBatch(list, patchFor);
+  } catch (error) {
+    reportStorageFailure(error, label);
+    return null;
+  }
+  if (!changes.length) {
+    showToast('لا توجد التقاطات مناسبة لهذا الإجراء.');
+    return null;
+  }
+  const previous = new Map(changes.map(({ current }) => [current.id, current]));
+  setEntriesSelecting(false);
+  showToast(message(changes.length), 'تراجع', async () => {
+    const restorable = entries.filter(entry => previous.has(entry.id));
+    try {
+      await updateEntriesBatch(restorable, entry => {
+        const before = previous.get(entry.id);
+        return {
+          patch: {
+            path: before.path,
+            status: before.status,
+            followUpDate: before.followUpDate || null,
+            followUpAt: before.followUpAt || null,
+            topTodayDate: before.topTodayDate || null,
+            type: before.type
+          }
+        };
+      });
+    } catch (error) {
+      reportStorageFailure(error, 'التراجع');
+    }
+  }, 5000);
+  return changes;
+}
+
+function batchMoveToPath(path) {
+  if (!hasOwn(ROUTABLE_PATHS, path)) return null;
+  return runEntriesBatch(
+    'نقل الالتقاطات',
+    selectedBatchEntries(entry => entry.path !== path),
+    () => ({ patch: { path } }),
+    count => `نُقل ${entryCountLabel(count)} إلى ${ROUTABLE_PATHS[path]}.`
+  );
+}
+
+function batchClose() {
+  return runEntriesBatch(
+    'إغلاق الالتقاطات',
+    selectedBatchEntries(entry => entry.status === 'open'),
+    () => ({ patch: { status: 'closed' } }),
+    count => `أُغلق ${entryCountLabel(count)}.`
+  );
+}
+
+function batchAddToTop() {
+  const today = dateKey();
+  const list = selectedBatchEntries(entry => entry.status === 'open' && entry.topTodayDate !== today);
+  const available = Math.max(0, topLimitValue() - topEntriesFor(today).length);
+  if (list.length > available) {
+    showToast(`المتاح في أهم اليوم ${formatNumber(available)} فقط.`);
+    return null;
+  }
+  // كإضافة التقاطة واحدة: «أهم اليوم» مرآة للأولوية، فيُصبح النوع مهمة ويبقى موعد العودة.
+  return runEntriesBatch(
+    'الإضافة إلى أهم اليوم',
+    list,
+    () => ({ patch: { topTodayDate: today, type: 'task' } }),
+    count => `أُضيف ${entryCountLabel(count)} إلى أهم اليوم.`
+  );
+}
+
+function openBatchReturnPicker() {
+  const ids = selectedBatchEntries(entry => entry.status === 'open').map(entry => entry.id);
+  if (!ids.length) {
+    showToast('لا توجد التقاطات مفتوحة لتأجيلها.');
+    return;
+  }
+  openReturnPicker({ mode: 'batch', entryIds: ids });
+}
+
+function batchDefer(ids, date, followUpAt) {
+  const wanted = new Set(ids);
+  return runEntriesBatch(
+    'تأجيل الالتقاطات',
+    entries.filter(entry => wanted.has(entry.id) && entry.status === 'open'),
+    current => ({
+      patch: { followUpDate: date, followUpAt },
+      extraEvent: { type: 'return_deferred', details: { from: current.followUpDate, to: date } }
+    }),
+    count => `أُجّل ${entryCountLabel(count)} · تعود ${returnMomentSummary(date, followUpAt)}.`
+  );
+}
+
+async function batchTrash() {
+  const list = selectedBatchEntries();
+  if (!list.length) return null;
+  const ok = await askConfirm({
+    title: 'نقل إلى المحذوفات',
+    message: `نقل ${entryCountLabel(list.length)} إلى المحذوفات؟ تبقى قابلة للاستعادة ${formatNumber(trashDaysValue())} أيام.`,
+    accept: 'نقل إلى المحذوفات'
+  });
+  if (!ok) return null;
+  return runEntriesBatch(
+    'نقل الالتقاطات إلى المحذوفات',
+    list,
+    () => ({ patch: { status: 'trash' } }),
+    count => `نُقل ${entryCountLabel(count)} إلى المحذوفات.`
+  );
 }
 
 function renderDays() {
@@ -3787,7 +4429,12 @@ function renderReturnPicker() {
   const selectedDate = validDateKey(context.selectedDate);
   const currentStrong = document.createElement('strong');
   currentStrong.textContent = returnMomentSummary(selectedDate, context.selectedAt);
-  elements.returnPickerCurrent.replaceChildren(document.createTextNode('العودة الحالية: '), currentStrong);
+  if (context.mode === 'batch') {
+    currentStrong.textContent = entryCountLabel(context.entryIds.length);
+    elements.returnPickerCurrent.replaceChildren(document.createTextNode('تأجيل '), currentStrong);
+  } else {
+    elements.returnPickerCurrent.replaceChildren(document.createTextNode('العودة الحالية: '), currentStrong);
+  }
   const schedules = resolvedReturnSchedules(context.entryId, dateKey(), { enforceCapacity: false });
   const buttons = schedules.map(schedule => {
     const button = document.createElement('button');
@@ -3814,6 +4461,7 @@ function openReturnPicker(context) {
   activeReturnPicker = {
     mode: context.mode,
     entryId: context.entryId || null,
+    entryIds: Array.isArray(context.entryIds) ? [...context.entryIds] : [],
     selectedDate: validDateKey(context.selectedDate),
     selectedAt: validFollowUpAt(context.selectedAt)
   };
@@ -3836,6 +4484,11 @@ async function applyReturnPickerDate(value, time = '') {
     elements.editReturnTime.value = clockValue(followUpAt);
     updateEditReturnSummary();
     elements.returnPickerDialog.close();
+    return;
+  }
+  if (context.mode === 'batch') {
+    elements.returnPickerDialog.close();
+    await batchDefer(context.entryIds, date, followUpAt);
     return;
   }
   const entry = entries.find(item => item.id === context.entryId);
@@ -4522,11 +5175,17 @@ function todayLayout() {
 }
 
 async function saveTodayLayout(layout) {
+  const next = normalizedTodayLayout(layout);
+  // يُطبَّق فورًا قبل انتهاء الكتابة، فيبني التغيير التالي على آخر اختيار لا على آخر قيمة اكتمل حفظها.
+  const pending = putSetting(TODAY_LAYOUT_SETTING, next);
+  settingsMap.set(TODAY_LAYOUT_SETTING, next);
+  renderToday();
+  if (elements.todayLayoutDialog.open) renderTodayLayoutDialog();
   try {
-    await putSetting(TODAY_LAYOUT_SETTING, normalizedTodayLayout(layout));
+    await pending;
+  } catch (error) {
     renderToday();
     if (elements.todayLayoutDialog.open) renderTodayLayoutDialog();
-  } catch (error) {
     reportStorageFailure(error, 'حفظ تخصيص اليوم');
   }
 }
@@ -4551,6 +5210,10 @@ function applyTodayLayout(today) {
   const layout = todayLayout();
   const visible = arrangedTodayModules(layout, today);
   const view = elements.todayView;
+  // كثافة الصفوف وما يظهر عليها، كإعدادات صف «اليوم» في التطبيق الأصلي.
+  view.classList.toggle('today-comfortable', layout.density === 'comfortable');
+  view.classList.toggle('today-hide-path', !layout.showPath);
+  view.classList.toggle('today-hide-return', !layout.showReturnDate);
   const nodes = new Map([...view.querySelectorAll(':scope > [data-module]')].map(node => [node.dataset.module, node]));
   [...visible, ...layout.order.filter(key => !visible.includes(key))].forEach(key => {
     const node = nodes.get(key);
@@ -4591,6 +5254,9 @@ function renderTodayLayoutDialog() {
     return row;
   }));
   elements.todayLayoutEvening.checked = layout.eveningRhythm;
+  elements.todayLayoutDensity.value = layout.density;
+  elements.todayLayoutShowPath.checked = layout.showPath;
+  elements.todayLayoutShowReturn.checked = layout.showReturnDate;
   elements.todayLayoutReturns.value = String(layout.returnsVisible);
 }
 
@@ -4600,7 +5266,8 @@ function openTodayLayoutDialog() {
 }
 
 function openDirectionDialog({ quoteId = null } = {}) {
-  elements.directionEditor.value = dailyRecordFor(dateKey())?.direction || '';
+  const draft = readDraft(`direction.${dateKey()}`);
+  elements.directionEditor.value = draft ? draft.text : (dailyRecordFor(dateKey())?.direction || '');
   const quote = quoteId ? quotes.find(item => item.id === quoteId) : null;
   elements.directionQuotePreview.hidden = !quote;
   if (quote) fillQuoteCard(elements.directionQuotePreview, quote);
@@ -4611,6 +5278,7 @@ function openDirectionDialog({ quoteId = null } = {}) {
 async function handleDirectionSubmit(event) {
   event.preventDefault();
   if (!await saveDailyDirection(dateKey(), elements.directionEditor.value)) return;
+  clearDraft(`direction.${dateKey()}`);
   elements.directionDialog.close();
   showToast('تم حفظ توجّه اليوم.');
 }
@@ -4679,6 +5347,7 @@ async function saveEveningClose({ withBackup = false } = {}) {
       records.forEach(record => track(stores.daily.put(record)));
     });
     upsertDailyRecords(records);
+    clearDraft(`close.${today}`);
     refreshDataViews();
     elements.eveningCloseDialog.close();
     showToast(withBackup ? 'تم إغلاق اليوم. اختر مكان حفظ النسخة.' : 'تم إغلاق اليوم.');
@@ -4727,9 +5396,66 @@ async function handleEveningCloseSubmit(event) {
   await saveEveningClose();
 }
 
+// مسودات النصوص تنجو من إغلاق المتصفح أو إعادة تحميل التطبيق؛ «إلغاء» الصريح وحده يمسحها.
+// تُحفظ في localStorage على هذا الجهاز فقط، والمرفقات غير المحفوظة لا تدخلها.
+const DRAFT_PREFIX = 'mersah.draft.';
+const DRAFT_RETENTION_DAYS = 30;
+
+function readDraft(key) {
+  try {
+    const raw = localStorage.getItem(DRAFT_PREFIX + key);
+    const value = raw ? JSON.parse(raw) : null;
+    return value && typeof value === 'object' ? value : null;
+  } catch (error) {
+    return null;
+  }
+}
+
+function writeDraft(key, value) {
+  try {
+    if (value) localStorage.setItem(DRAFT_PREFIX + key, JSON.stringify({ ...value, savedAt: nowIso() }));
+    else localStorage.removeItem(DRAFT_PREFIX + key);
+  } catch (error) {
+    // التخزين المحلي قد يكون محجوبًا؛ المسودة تبقى في الحقل حتى تُغلق الورقة.
+  }
+}
+
+function clearDraft(key) {
+  writeDraft(key, null);
+}
+
+function pruneDrafts() {
+  try {
+    const cutoff = Date.now() - DRAFT_RETENTION_DAYS * DAY;
+    for (let index = localStorage.length - 1; index >= 0; index -= 1) {
+      const key = localStorage.key(index);
+      if (!key?.startsWith(DRAFT_PREFIX)) continue;
+      const savedAt = new Date(readDraft(key.slice(DRAFT_PREFIX.length))?.savedAt || 0).getTime();
+      if (!(savedAt > cutoff)) localStorage.removeItem(key);
+    }
+  } catch (error) {
+    // لا شيء يُنظَّف إن كان التخزين المحلي غير متاح.
+  }
+}
+
+function saveEveningDraft() {
+  const reflection = elements.eveningReflection.value;
+  const tomorrow = elements.eveningTomorrowDirection.value;
+  // الحقلان الفارغان مسودة أيضًا: مسح نص محفوظ قرار يجب أن ينجو من إعادة التحميل.
+  writeDraft(`close.${dateKey()}`, { reflection, tomorrow });
+}
+
+function saveEditDraft() {
+  const entry = entries.find(item => item.id === elements.editEntryId.value);
+  if (!entry) return;
+  const text = elements.editText.value;
+  writeDraft(`edit.${entry.id}`, text !== (entry.text || '') ? { text, base: entry.updatedAt } : null);
+}
+
 function openCaptureDialog() {
   hideCaptureReturnConfirmation();
   resetCaptureForm();
+  elements.captureText.value = readDraft('capture')?.text || '';
   elements.captureDialog.showModal();
   setTimeout(() => elements.captureText.focus(), 80);
 }
@@ -4786,6 +5512,7 @@ async function handleCaptureSubmit(event) {
   }
   elements.captureStatus.textContent = '';
   elements.captureStatus.hidden = true;
+  clearDraft('capture');
   elements.captureDialog.close();
   showCaptureReturnConfirmation(entry);
 }
@@ -4997,6 +5724,15 @@ function openEditDialog(entryId, { unlockText = false } = {}) {
   elements.editAttachmentsOptions.open = !entry.text && attachmentsFor(entry.id).length > 0;
   renderExistingAttachments(entry.id);
   renderAttachmentPreview(elements.editNewPreview, editNewAttachments, removeEditNewAttachment);
+  // مسودة التعديل لا تُستعاد إن تغيّر السجل بعدها، حتى لا تكتب نصًا قديمًا فوق تعديل أحدث.
+  const draft = readDraft(`edit.${entry.id}`);
+  if (draft && draft.base === entry.updatedAt && typeof draft.text === 'string') {
+    elements.editText.value = draft.text;
+    resizeEditTextField();
+    unlockText = true;
+  } else if (draft) {
+    clearDraft(`edit.${entry.id}`);
+  }
   if (unlockText) setEditTextUnlocked(true);
   elements.editDialog.showModal();
   setTimeout(() => (unlockText ? elements.editText : elements.editTextUnlockButton).focus(), 80);
@@ -5117,6 +5853,7 @@ async function handleEditSubmit(event) {
     reportStorageFailure(error, 'حفظ التعديل');
     return;
   }
+  clearDraft(`edit.${elements.editEntryId.value}`);
   elements.editDialog.close();
   showToast('تم حفظ التعديل.');
 }
@@ -5125,7 +5862,10 @@ async function deleteEditedEntry() {
   const id = elements.editEntryId.value;
   if (!id) return;
   const removed = await trashEntry(id);
-  if (removed) elements.editDialog.close();
+  if (removed) {
+    clearDraft(`edit.${id}`);
+    elements.editDialog.close();
+  }
 }
 
 async function cleanOldTrash() {
@@ -6766,6 +7506,7 @@ function switchView(name) {
   const changed = currentView !== name;
   if (changed) hideCaptureReturnConfirmation();
   if (changed) viewScrollPositions.set(currentView, window.scrollY);
+  if (changed && entriesSelecting) setEntriesSelecting(false);
   currentView = name;
   showOnlyView(name);
   renderCurrentView();
@@ -6866,6 +7607,12 @@ function bindEvents() {
   elements.todayLayoutReturns.addEventListener('change', () =>
     saveTodayLayout({ ...todayLayout(), returnsVisible: Number(elements.todayLayoutReturns.value) }));
   elements.todayLayoutReset.addEventListener('click', () => saveTodayLayout(defaultTodayLayout()));
+  elements.todayLayoutDensity.addEventListener('change', () =>
+    saveTodayLayout({ ...todayLayout(), density: elements.todayLayoutDensity.value }));
+  elements.todayLayoutShowPath.addEventListener('change', () =>
+    saveTodayLayout({ ...todayLayout(), showPath: elements.todayLayoutShowPath.checked }));
+  elements.todayLayoutShowReturn.addEventListener('change', () =>
+    saveTodayLayout({ ...todayLayout(), showReturnDate: elements.todayLayoutShowReturn.checked }));
   elements.todayQuoteButton.addEventListener('click', openQuoteActions);
   elements.todayQuoteHintButton.addEventListener('click', openQuotesDialog);
   elements.todayQuoteHintDismiss.addEventListener('click', () =>
@@ -6910,19 +7657,18 @@ function bindEvents() {
   });
   $$('.nav-btn[data-target]').forEach(button => button.addEventListener('click', () => switchView(button.dataset.target)));
   elements.analysisOldestRow.addEventListener('click', () => {
-    activeEntriesPath = 'consider';
-    entriesOpenOnly = true;
-    elements.entriesSort.value = 'oldest';
+    entriesFilter = { ...defaultEntriesFilter(), path: 'consider', status: 'open', sort: 'oldest' };
     entriesResultsLimit = ENTRY_PAGE_SIZE;
     switchView('entries');
   });
   elements.analysisResolutionRow.addEventListener('click', () => {
     const today = dateKey();
-    activeEntriesPath = 'all';
-    entriesOpenOnly = false;
-    elements.entriesDateFrom.value = shiftDateKey(today, -6);
-    elements.entriesDateTo.value = today;
-    elements.entriesSort.value = 'newest';
+    entriesFilter = {
+      ...defaultEntriesFilter(),
+      dateScope: 'custom',
+      customStart: shiftDateKey(today, -6),
+      customEnd: today
+    };
     entriesResultsLimit = ENTRY_PAGE_SIZE;
     switchView('entries');
   });
@@ -6954,16 +7700,38 @@ function bindEvents() {
   elements.eveningCloseForm.addEventListener('submit', handleEveningCloseSubmit);
   elements.eveningTomorrowDirection.addEventListener('input', () => {
     eveningDirectionDirty = true;
+    saveEveningDraft();
   });
   elements.eveningReflection.addEventListener('input', () => {
     eveningReflectionDirty = true;
+    saveEveningDraft();
   });
+  elements.captureText.addEventListener('input', () => {
+    const text = elements.captureText.value;
+    writeDraft('capture', text.trim() ? { text } : null);
+  });
+  elements.directionEditor.addEventListener('input', () => {
+    writeDraft(`direction.${dateKey()}`, { text: elements.directionEditor.value });
+  });
+  elements.editText.addEventListener('input', saveEditDraft);
+  // «إلغاء» قرار صريح بترك المسودة؛ الإغلاق بـ× أو Esc أو انقطاع التطبيق يبقيها.
+  [
+    ['captureDialog', () => 'capture'],
+    ['directionDialog', () => `direction.${dateKey()}`],
+    ['eveningCloseDialog', () => `close.${dateKey()}`],
+    ['editDialog', () => `edit.${elements.editEntryId.value}`]
+  ].forEach(([dialogId, key]) => {
+    $$(`#${dialogId} .quiet-btn[data-close-dialog="${dialogId}"]`).forEach(button => {
+      button.addEventListener('click', () => clearDraft(key()));
+    });
+  });
+  elements.deferAllReturnsButton.addEventListener('click', deferAllReturnsToSession);
   elements.showMoreReturnsButton.addEventListener('click', () => {
     returnedTodayExpandedDay = dateKey();
     renderReturnedToday();
   });
   elements.entriesOpenOnlyButton.addEventListener('click', () => {
-    entriesOpenOnly = false;
+    entriesFilter = { ...entriesFilter, status: 'all' };
     entriesResultsLimit = ENTRY_PAGE_SIZE;
     renderEntries();
   });
@@ -6982,10 +7750,26 @@ function bindEvents() {
   elements.entriesSearchInput.addEventListener('input', scheduleEntriesSearch);
   elements.entriesDateFrom.addEventListener('change', () => handleEntriesDateChange('from'));
   elements.entriesDateTo.addEventListener('change', () => handleEntriesDateChange('to'));
-  elements.entriesSort.addEventListener('change', () => {
-    entriesResultsLimit = ENTRY_PAGE_SIZE;
-    renderEntries();
+  elements.entriesDateScope.addEventListener('change', handleEntriesDateScopeChange);
+  elements.entriesStatus.addEventListener('change', () => setEntriesFilter({ status: elements.entriesStatus.value }));
+  elements.entriesAttachmentsOnly.addEventListener('change', () => setEntriesFilter({ attachmentsOnly: elements.entriesAttachmentsOnly.checked }));
+  elements.entriesSort.addEventListener('change', () => setEntriesFilter({ sort: elements.entriesSort.value }));
+  elements.entriesGroup.addEventListener('change', () => setEntriesFilter({ group: elements.entriesGroup.value }));
+  elements.entriesSavedViewsButton.addEventListener('click', openSavedViewsDialog);
+  elements.savedViewForm.addEventListener('submit', saveCurrentView);
+  elements.entriesSelectButton.addEventListener('click', () => setEntriesSelecting(!entriesSelecting));
+  elements.entriesBatchPath.addEventListener('change', () => {
+    const path = elements.entriesBatchPath.value;
+    elements.entriesBatchPath.value = '';
+    batchMoveToPath(path);
   });
+  $$('[data-batch-action]', elements.entriesBatchBar).forEach(button => button.addEventListener('click', () => {
+    const action = button.dataset.batchAction;
+    if (action === 'defer') openBatchReturnPicker();
+    else if (action === 'close') batchClose();
+    else if (action === 'top') batchAddToTop();
+    else if (action === 'trash') batchTrash();
+  }));
   elements.clearEntriesFiltersButton.addEventListener('click', clearEntriesFilters);
   elements.loadMoreEntriesButton.addEventListener('click', () => {
     entriesResultsLimit += ENTRY_PAGE_SIZE;
@@ -7099,7 +7883,8 @@ function bindEvents() {
   }));
   [elements.topTaskDialog, elements.captureDialog, elements.directionDialog, elements.eveningCloseDialog, elements.returnPickerDialog,
     elements.weeklySessionDialog, elements.editDialog,
-    elements.entryDetailsDialog, elements.entryShareDialog, elements.fileViewerDialog, elements.trashDialog, elements.settingsDialog].forEach(dialog => {
+    elements.entryDetailsDialog, elements.entryShareDialog, elements.fileViewerDialog, elements.trashDialog, elements.savedViewsDialog,
+    elements.settingsDialog].forEach(dialog => {
     dialog.addEventListener('click', event => {
       if (event.target === dialog) dialog.close();
     });
@@ -7217,6 +8002,7 @@ async function init() {
   await refreshData();
   await migrateLegacyReturnDates();
   await archivePastDirections().catch(error => console.warn(error));
+  pruneDrafts();
   await cleanOldTrash();
   await attemptAutomaticPersistence();
   updateIcloudStatus();

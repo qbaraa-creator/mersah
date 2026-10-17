@@ -1,11 +1,11 @@
-// مرساة — Service Worker v94 (تكافؤ التطبيق الأصلي: العبارات والبنود والعودة بالساعة وتخصيص اليوم)
+// مرساة — Service Worker v97 (حماية الإعدادات من اكتمال كتابة قديمة، وبقاء مسح نص الإغلاق)
 //
 // مهم عند النشر: ارفع رقم النسخة في CACHE_NAME عند أي تعديل على
 // index.html أو app.js أو manifest.webmanifest أو الأيقونات والخطوط.
 // هذا هو المُشغّل الوحيد للتحديث؛
 // بدونه يبقى المتصفح يخدم النسخة المخزّنة.
 const CACHE_PREFIX = 'mersah-static-';
-const CACHE_NAME = `${CACHE_PREFIX}v94`;
+const CACHE_NAME = `${CACHE_PREFIX}v97`;
 const SHELL_DOCUMENT = './index.html';
 const CORE_SHELL = [
   './',
